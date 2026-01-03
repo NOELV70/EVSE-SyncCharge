@@ -1,0 +1,102 @@
+ Evse_SimplifiedBridging the gap between the grid and your EV with smart PWM signaling, OTA agility, and MQTT-driven charging intelligence.Evse_Simplified is a mission-critical, WiFi-enabled Electric Vehicle Supply Equipment (EVSE) controller. Built on the dual-core ESP32, this firmware handles the complex timing of the SAE J1772 protocol while providing a modern, developer-friendly IoT interface.🚀 Core CapabilitiesSmart Protocol Management: Full 1kHz PWM generation and high-precision ADC feedback for vehicle state detection (States A-F).Zero-Preset Configuration: No hardcoded credentials. All settings—WiFi, MQTT, and Amperage limits—are configured via a Captive Web Portal and stored in NVS (Non-Volatile Storage).Fail-Safe Watchdog (WDT): Continuous hardware-level monitoring ensures the system automatically recovers from any software "hangs" or network lockups.One-Click Networking: Intelligent transition from DHCP to Static IP. The system auto-detects your network’s parameters to suggest the perfect configuration.Cyan-Diag Console: A deep-dive diagnostic web interface showing Pilot Voltage, Free Heap, and System Uptime in real-time.🛡️ Mission-Critical Safety LayerThe v5.6.6 "Goose-Cyan-Diag" kernel implements a high-integrity safety stack to protect the vehicle’s Onboard Charger (OBC) and the home infrastructure.1. Hardware Watchdog (WDT) SupervisorTo prevent the charger from becoming "stuck" in an unsafe state during a software crash:The "Kick": The main loop is required to "kick the dog" (reset the timer) every few milliseconds.Lockup Recovery: If the WiFi stack deadlocks or the code hangs for more than 8 seconds, the hardware supervisor triggers an immediate MCU reset.Safety Default: Upon reset, the hardware enters its "Pre-Init Lockout" state, ensuring the contactor is open and the vehicle is safe.2. Synchronized PWM-Abort & OTA InterlockTo prevent arcing and contactor wear, the system avoids "Hot Switching."Pilot Abort: During a stop command or an OTA Update, the Pilot signal instantly switches to $+12\text{V}$ (100% duty), signaling the EV to cease power draw electronically.Immediate Break: The openImmediately() function bypasses software debounce timers during emergencies to ensure a physical disconnect before the MCU reboots.3. Mechanical & Boot ProtectionAnti-Chatter Hysteresis: A $3000\text{ms}$ RELAY_SWITCH_DELAY ensures that noisy signals or momentary voltage dips do not cause the contactor to cycle rapidly.Pre-Init Pin Lock: GPIO 16 (Relay) is hardware-forced LOW during the bootloader phase, eliminating "startup glitches."🏛️ Pro-Level Technical Deep DiveThe SAE J1772 State MachineThe firmware uses a non-blocking state machine to decode the analog Control Pilot (CP) signal with millisecond precision:StatePilot VoltageDescriptionFirmware ActionState A$+12\text{V}$Standby / No VehiclePWM Off; Relay OpenState B$+9\text{V} \pm 1$Vehicle DetectedStart PWM; Wait for 'Ready'State C$+6\text{V} \pm 1$Ready to ChargeClose Relay; Monitor LoadState D$+3\text{V} \pm 1$Ventilation RequiredClose Relay; Log Vent StateState E/F$0\text{V} / -12\text{V}$Error / Diode FaultEmergency Stop; Lockout🛠 Hardware ConfigurationComponentPin (GPIO)FunctionRelay Control16Enables/Disables High-Voltage AC OutputPilot PWM27SAE J1772 Control Pilot (1kHz)Pilot Feedback36ADC Input for Pilot State DetectionSupervisorInternal WDTHardware-level Task Watchdog📡 Deployment & ConfigurationFirst Boot: The device starts as a WiFi Access Point. Connect to the EVSE-XXXX-SETUP hotspot.Web Portal: Enter your credentials. Settings are saved to NVS and survive reboots and updates.Real-Time Control: Access the dashboard via http://evse-xxxx.local for manual overrides and the Cyan-Green Diagnostic block.📝 Project StatusCurrent Version: 5.6.6 "Goose-Cyan-Diag"Lead Developer: Noel Vellemans
+
+ 
+
+ Evse_Simplified
+ Bridging the gap between the grid and your EV with smart PWM signaling, OTA agility, and MQTT-driven charging intelligence.Evse_Simplified is a mission-critical, WiFi-enabled Electric Vehicle Supply Equipment (EVSE) controller. Built on the dual-core ESP32, this firmware handles the complex timing of the SAE J1772 protocol while providing a modern, developer-friendly IoT interface.Unlike "dumb" chargers that merely click a relay, this system provides a real-time window into the charging process, enabling dynamic load balancing and industrial-grade safety monitoring.🚀 Core CapabilitiesSmart Protocol Management: Full 1kHz PWM generation and high-precision ADC feedback for vehicle state detection (States A-F).Zero-Preset Configuration: No hardcoded credentials. Use the built-in Captive Web Portal to configure WiFi, MQTT, and Amperage limits. All settings are stored securely in NVS (Non-Volatile Storage).IoT & Home Assistant: Native MQTT stack with Auto-Discovery for "plug-and-play" dashboard integration.One-Click Networking: Intelligent transition from DHCP to Static IP. The system auto-detects your network’s Subnet and Gateway to suggest the perfect static configuration.Cyan-Diag Console: A deep-dive diagnostic web interface showing Pilot Voltage, Free Heap, and System Uptime in real-time.🛡️ Mission-Critical Safety LayerThe v5.6.6 "Goose-Cyan-Diag" kernel implements a high-integrity safety stack to protect the vehicle’s Onboard Charger (OBC) and the home infrastructure.1. Synchronized PWM-Abort & OTA InterlockTo prevent arcing and contactor wear, the system avoids "Hot Switching."Pilot Abort: During a stop command or an OTA Update, the Pilot signal instantly switches to $+12\text{V}$ (100% duty), signaling the EV to cease power draw electronically.Immediate Break: The openImmediately() function bypasses software debounce timers during emergencies or firmware flashes to ensure a physical disconnect before the MCU reboots.2. Industrial Supervisor (Watchdog)Hardware WDT: A dedicated supervisor (esp_task_wdt) monitors the main loop with an 8-second timeout. If a network deadlock occurs, the system triggers a hard reset.Pre-Init Lockout: GPIO 16 (Relay) is hardware-forced LOW during the bootloader phase, eliminating "startup glitches" or accidental relay toggles.3. Mechanical ProtectionAnti-Chatter Hysteresis: A $3000\text{ms}$ RELAY_SWITCH_DELAY ensures that noisy Pilot signals or momentary voltage dips do not cause the contactor to cycle rapidly.🏛️ Pro-Level Technical Deep DiveThe SAE J1772 State MachineThe firmware uses a non-blocking state machine to decode the analog Control Pilot (CP) signal with millisecond precision:StatePilot VoltageDescriptionFirmware ActionState A$+12\text{V}$Standby / No VehiclePWM Off; Relay OpenState B$+9\text{V} \pm 1$Vehicle DetectedStart PWM; Wait for 'Ready'State C$+6\text{V} \pm 1$Ready to ChargeClose Relay; Monitor LoadState D$+3\text{V} \pm 1$Ventilation RequiredClose Relay; Log Vent StateState E/F$0\text{V} / -12\text{V}$Error / Diode FaultEmergency Stop; Lockout🛠 Hardware ConfigurationComponentPin (GPIO)FunctionRelay Control16Enables/Disables High-Voltage AC OutputPilot PWM27SAE J1772 Control Pilot (1kHz)Pilot Feedback36ADC Input for Pilot State DetectionCommunicationESP32 WiFiCaptive Portal, MQTT, & OTA Updates📡 Deployment & UIFirst Boot: The device starts in Access Point (AP) Mode. Connect to the EVSE-XXXX-SETUP hotspot.Web Setup: Use the captive portal to enter WiFi credentials, MQTT broker details, and max current settings.Real-Time Control: Access the dashboard via http://evse-xxxx.local to trigger manual starts/stops or view the Cyan-Green Diagnostic block.MQTT Interface: * tele/EVSE-[ID]/SENSOR: Publishes Current, Voltage, and Pilot State.cmnd/EVSE-[ID]/limit: Remotely adjust Amperage (6A–32A) for Load Shedding.
+
+
+
+ Evse_Simplified
+ Bridging the gap between the grid and your EV with smart PWM signaling, OTA agility, and MQTT-driven charging intelligence.The EVSE-Arduino is a mission-critical, WiFi-enabled Electric Vehicle Supply Equipment (EVSE) controller. Built on the dual-core ESP32, this firmware handles the heavy lifting of the SAE J1772 protocol while offering the flexibility of a modern IoT device.Unlike "dumb" chargers that merely click a relay, Evse_Simplified provides a real-time window into the charging process, enabling dynamic load balancing, smart home integration, and industrial-grade safety monitoring.🚀 Core CapabilitiesSmart Protocol Management: Full implementation of 1kHz PWM generation and precise ADC feedback for vehicle state detection (States A-F).IoT & Home Assistant: Native MQTT stack with Auto-Discovery for "plug-and-play" telemetry and remote amperage limiting.One-Click Networking: Intelligent transition from DHCP to Static IP—the system auto-detects your network’s Subnet and Gateway to prevent configuration errors.Cyan-Diag Console: A deep-dive diagnostic web interface showing Pilot Voltage, Free Heap, and System Uptime in real-time.Safety-First Kernel: Integrated Hardware Watchdog (WDT) and anti-chatter relay logic to protect the vehicle’s Onboard Charger (OBC).🏛️ Pro-Level Technical Deep DiveFor engineers and advanced users, the "Simplified" name belies a sophisticated architectural stack designed for reliability and standards compliance.1. The SAE J1772 State MachineThe firmware uses a non-blocking state machine to decode the analog Control Pilot (CP) signal. By measuring the voltage drop across the vehicle's internal resistors, the ESP32 manages transitions with millisecond precision:StatePilot VoltageDescriptionFirmware ActionState A$+12\text{V}$Standby / No VehiclePWM Off; Relay OpenState B$+9\text{V} \pm 1$Vehicle DetectedStart PWM; Wait for 'Ready'State C$+6\text{V} \pm 1$Ready to ChargeClose Relay; Monitor LoadState D$+3\text{V} \pm 1$Ventilation RequiredClose Relay; Log Vent StateState E/F$0\text{V} / -12\text{V}$Error / Diode FaultEmergency Stop; Lockout2. Synchronized PWM-Abort SafetyIn high-current AC charging, "Hot Switching" (opening a relay while current is flowing) can cause arcing and degrade the contactor. Our v5.6.6 Kernel implements a "Soft-Stop" sequence:Pilot Abort: The PWM signal is instantly set to $100\%$ duty ($+12\text{V}$ DC). This signals the EV to electronically cease power draw.Zero-Load Break: After a calculated delay, the mechanical relay opens. This ensures the relay never breaks a live load under normal conditions.3. Industrial Supervisor & WatchdogTask Watchdog (WDT): The hardware supervisor is tuned to an 8-second window. If the MQTT or WiFi stack deadlocks, the WDT triggers a hard reset.Pre-Init Lockout: During the boot-up sequence, GPIO 16 (Relay) is hardware-forced LOW before any application code runs, eliminating "boot-glitch" toggles.Anti-Chatter Hysteresis: A $3000\text{ms}$ RELAY_SWITCH_DELAY ensures that noisy Pilot signals or momentary voltage dips don't cause the contactor to cycle rapidly.4. Smart Load Balancing (MQTT)The controller supports dynamic current scaling from $6\text{A}$ to $32\text{A}$. By integrating with Home Assistant and a smart meter, the firmware can "Load Shed"—automatically reducing the EV charge rate when a household appliance (like an oven or heat pump) turns on, protecting your main fuse.
+
+
+
+EVSE-Arduino: Smart ESP32 EV ControllerA robust, WiFi-enabled Electric Vehicle Supply Equipment (EVSE) controller built on the ESP32. This firmware manages the SAE J1772 signaling protocol, providing smart charging capabilities with full MQTT integration for Home Assistant and remote monitoring.⚡ Core FeaturesSmart Protocol Management: Full implementation of SAE J1772 pilot signal PWM generation and feedback monitoring.IoT Ready: Integrated MQTT client for real-time telemetry and remote control (Start/Stop/Current Limiting).Home Assistant Integration: Supports MQTT Discovery for instant "plug-and-play" dashboard setup.Safety First: Real-time three-phase current monitoring and relay state management.OTA Updates: Seamless Over-The-Air firmware updates for maintenance without physical access.Structured Logging: Tiered logging system (Info, Debug, Error) for easier hardware debugging.🛠 Hardware ConfigurationComponentPin (GPIO)FunctionRelay ControlConfigurableEnables/Disables High-Voltage AC OutputPilot PWMGPIO 27SAE J1772 Control Pilot (1kHz)Pilot FeedbackGPIO 36ADC Input for Pilot State DetectionCommunicationESP32 WiFiMQTT & OTA Updates🚀 Quick Start1. PrerequisitesArduino IDE or PlatformIOLibraries: ArduinoOTA, WiFi, PubSubClient (or your preferred MQTT lib)An ESP32 Development Board2. ConfigurationEdit the credentials in EVSE_Arduino.ino to match your 
+
+3. DeploymentConnect your ESP32 to your computer.Flash the firmware using the Arduino IDE.Monitor the Serial output at 115200 baud to verify the WiFi and MQTT connection.Once connected, the device will register itself as EVSE-[MAC_ADDRESS].📡 MQTT InterfaceThe controller listens and publishes to the following topics (default structure):tele/EVSE-[ID]/LWT: Online/Offline status.tele/EVSE-[ID]/SENSOR: Current, Voltage, and Pilot State.cmnd/EVSE-[ID]/charge: Set START or STOP.cmnd/EVSE-[ID]/limit: Set maximum current (Amps).
+
+
+To implement your safety requirements, we need to ensure the Watchdog is actively monitored and that the OTA process can bypass the 3-second RELAY_SWITCH_DELAY logic in your Relay.cpp.
+
+The openImmediately() function you already have is perfect for this—we just need to call it in the right places.
+
+1. The Professional "Safety-First" Implementation
+Here is how your main .ino file should look to integrate your Relay class with a Hardware Watchdog and the OTA Emergency Stop:
+
+C++
+
+
+2. Updated Professional README
+Add this technical breakdown to your documentation. It proves to any observer that you have considered the mechanical and electrical risks of EV charging.
+
+🛡️ Industrial Safety Implementation
+This firmware implements a high-integrity safety layer to protect the EV battery and the charging infrastructure:
+
+Mechanical Protection (Anti-Chatter)
+The Relay driver enforces a RELAY_SWITCH_DELAY of 3000ms. This prevents "relay chatter" (rapid toggling) which can weld contactor points or damage the vehicle's onboard charger (OBC).
+
+Hardware Watchdog (WDT)
+A hardware-level supervisor (esp_task_wdt) monitors the execution of the main loop. If a network deadlock occurs in the MQTT or WiFi stack:
+
+The Watchdog triggers an immediate MCU reset.
+
+The bootloader defaults the GPIOs to high-impedance.
+
+Hardware pull-down resistors (recommended 10kΩ) ensure the AC contactor opens instantly.
+
+OTA Interlock
+During an Over-The-Air update, the system triggers an openImmediately() call. This bypasses the software-defined debounce timers to ensure that high-voltage AC is physically disconnected before any code modification begins.
+
+
+🔄 OTA Safe-Shutdown Sequence
+To prevent electrical arcing and vehicle-side errors during a firmware update, the controller executes a synchronized shutdown sequence:
+
+Pilot Signaling (State A): The Pilot driver immediately switches the PWM signal to a constant +12V. This signals the vehicle to cease power draw immediately.
+
+State Machine Abort: The EvseCharge logic is placed into a STOP state to prevent any resume commands from being processed during the flash window.
+
+Physical Interruption: The Relay object executes openImmediately(), bypassing the standard 3000ms debounce timer to ensure the AC contactor is open before the ESP32 enters its internal flashing routine.
+
+3. Updated Standout One-Liner
+"A mission-critical ESP32 EVSE controller featuring synchronized PWM-abort signaling, hardware watchdog supervision, and a zero-glitch encapsulated relay architecture."
+
+
+
+Project Log: Building a Smart ESP32-Based EVSE
+Status: Work in Progress (Firmware v5.6.6)
+
+Date: January 2026
+
+Lead Developer: Noel Vellemans
+
+1. The Core Vision
+The goal of this project is to build a robust, DIY electric vehicle charging station (EVSE) that follows the SAE J1772 and IEC 61851 standards while offering modern "smart" features. By using an ESP32 as the brain, the station isn't just a dumb relay—it's a connected device capable of MQTT integration, web-based management, and real-time diagnostics.
+
+2. Current Architecture
+The system is built on a modular kernel structure:
+
+The Pilot Driver: A dedicated class that handles the 1kHz PWM signal. It precisely controls the duty cycle to tell the car how many Amps it can pull, while simultaneously monitoring the Pilot voltage to detect the vehicle's state (A through F).
+
+The Charge Controller: This is the logic layer that manages the contactor, safety timers, and state transitions.
+
+The Communication Stack: Featuring a built-in Captive Portal for initial WiFi setup, a custom Web Dashboard for mobile control, and MQTT for future Smart Home (Home Assistant) integration.
+
+3. Latest Milestones
+We have recently implemented several "Quality of Life" features that move the project from a prototype to a polished tool:
+
+Dynamic UI Translation: The web interface no longer shows raw numeric codes. It now translates the Pilot voltage into human-readable states like "Ready: Charging" or "Standby: Not Connected."
+
+Intelligent Networking: Switching from DHCP to a Static IP is now a "one-click" process. The firmware detects your current live network parameters (IP, Gateway, and Subnet) and pre-fills the configuration for you.
+
+Deep Diagnostics: A new "Cyan-Green" diagnostic console has been added to the settings menu. It provides a "under the hood" look at the system, including Pilot Voltage (V), Free Heap memory, and Uptime.
+
+4. Technical Challenges & Safety
+Safety is the priority. The firmware includes an ESP32 Task Watchdog (WDT). If the software hangs for more than 8 seconds, the system automatically panics and reboots, ensuring the Pilot signal and contactor return to a safe state. We are also currently refining the MQTT Failsafe logic—ensuring that if the charger loses connection to the smart home server, it can either throttle down or stop the session safely.
+
+5. Next Steps
+Energy Monitoring: Integrating a power meter (HLW8012 or similar) to track kWh per session.
+
+OTA Refinement: Enhancing the Over-The-Air update stability for remote maintenance.
+
+Enclosure Design: Moving the prototype from the bench into a weather-rated housing.

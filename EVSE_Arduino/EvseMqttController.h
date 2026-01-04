@@ -94,6 +94,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include "EvseCharge.h"
+#include <functional>
 
 class EvseMqttController {
 public:
@@ -103,6 +104,9 @@ public:
                const String& deviceIdString);
     void loop();
     void enableCurrentTest(bool enable);
+    void setFailsafeConfig(bool enabled, unsigned long timeout);
+    void onFailsafeCommand(std::function<void(bool, unsigned long)> callback);
+    bool connected();
 
 private:
     void mqttCallback(char* topic, byte* payload, unsigned int length);
@@ -112,6 +116,11 @@ private:
     EvseCharge* evse;
     WiFiClient mqttWiFiClient;
     PubSubClient mqttClient;
+
+    // Failsafe local cache
+    bool _fsEnabled = false;
+    unsigned long _fsTimeout = 600;
+    std::function<void(bool, unsigned long)> _fsCallback;
 
     String deviceId;
     String mqttUser;
@@ -130,6 +139,10 @@ private:
     String topicLowLimitResumeDelay;
     // legacy 'setPwm' removed; use topicCurrentTest instead
     String topicCurrentTest;
+    String topicSetFailsafe;
+    String topicFailsafeState;
+    String topicSetFailsafeTimeout;
+    String topicFailsafeTimeoutState;
 
     // --- Last values for change detection ---
     STATE_T lastState = STATE_COUNT;

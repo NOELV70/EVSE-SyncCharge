@@ -69,11 +69,17 @@ void EvseCharge::updateVehicleState() {
 }
 
 void EvseCharge::startCharging() {
-    logger.debug("[EVSE] Start charging? ");
-    if (state == STATE_CHARGING) return;
+    logger.info("[EVSE] startCharging() called");
+    if (state == STATE_CHARGING) {
+        logger.warn("[EVSE] Start ignored: Already charging");
+        return;
+    }
     if (vehicleState != VEHICLE_CONNECTED &&
         vehicleState != VEHICLE_READY &&
-        vehicleState != VEHICLE_READY_VENTILATION_REQUIRED) return;
+        vehicleState != VEHICLE_READY_VENTILATION_REQUIRED) {
+        logger.warnf("[EVSE] Start ignored: Vehicle not ready (State: %d)", vehicleState);
+        return;
+    }
     logger.info("[EVSE] Start charging now");
 
     state = STATE_CHARGING;
@@ -83,9 +89,12 @@ void EvseCharge::startCharging() {
 }
 
 void EvseCharge::stopCharging() {
-    logger.debug("[EVSE] Stop charging? ");
+    logger.info("[EVSE] stopCharging() called");
     relay->openImmediately();
-    if (state != STATE_CHARGING) return;
+    if (state != STATE_CHARGING) {
+        logger.warn("[EVSE] Stop ignored: Not charging");
+        return;
+    }
 
     logger.info("[EVSE] Stop charging");
     state = STATE_READY;

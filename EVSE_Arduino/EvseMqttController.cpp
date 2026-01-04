@@ -47,6 +47,10 @@ void EvseMqttController::begin(const char* mqttServer, int mqttPort,
     topicDisableAtLowLimitState = "evse/" + deviceId + "/disableAtLowLimit";
     topicLowLimitResumeDelay    = "evse/" + deviceId + "/lowLimitResumeDelay";
     topicCurrentTest            = "evse/" + deviceId + "/test/current";
+    topicSetFailsafe            = "evse/" + deviceId + "/setFailsafe";
+    topicFailsafeState          = "evse/" + deviceId + "/failsafe";
+    topicSetFailsafeTimeout     = "evse/" + deviceId + "/setFailsafeTimeout";
+    topicFailsafeTimeoutState   = "evse/" + deviceId + "/failsafeTimeout";
 
     mqttClient.setServer(mqttServer, mqttPort);
     mqttClient.setCallback([this](char* topic, byte* payload, unsigned int length) {
@@ -86,6 +90,8 @@ void EvseMqttController::loop()
             mqttClient.subscribe(topicSetCurrent.c_str());
             mqttClient.subscribe(topicCurrentTest.c_str());
             mqttClient.subscribe(topicDisableAtLowLimit.c_str());
+            mqttClient.subscribe(topicSetFailsafe.c_str());
+            mqttClient.subscribe(topicSetFailsafeTimeout.c_str());
 
             mqttClient.publish(topicState.c_str(), "online", true);
 
@@ -96,6 +102,11 @@ void EvseMqttController::loop()
 
             snprintf(buf, sizeof(buf), "%lu", evse->getLowLimitResumeDelay());
             mqttClient.publish(topicLowLimitResumeDelay.c_str(), buf, true);
+
+            // Sync Failsafe state
+            mqttClient.publish(topicFailsafeState.c_str(), _fsEnabled ? "1" : "0", true);
+            snprintf(buf, sizeof(buf), "%lu", _fsTimeout);
+            mqttClient.publish(topicFailsafeTimeoutState.c_str(), buf, true);
 
             publishHADiscovery();
         }
@@ -208,12 +219,58 @@ void EvseMqttController::mqttCallback(char* topic, byte* payload, unsigned int l
             mqttClient.publish(topicPwmDuty.c_str(), buf, true);
         }
     }
+    else if (strcmp(topic, topicSetFailsafe.c_str()) == 0)
+    {
+        String lower = msg;
+        lower.toLowerCase();
+        bool newState = (lower == "1" || lower == "on" || lower == "true" || lower == "enable");
+        
+        if (_fsEnabled != newState) {
+            _fsEnabled = newState;
+            mqttClient.publish(topicFailsafeState.c_str(), _fsEnabled ? "1" : "0", true);
+            if (_fsCallback) _fsCallback(_fsEnabled, _fsTimeout);
+        }
+    }
+    else if (strcmp(topic, topicSetFailsafeTimeout.c_str()) == 0)
+    {
+        long val = msg.toInt();
+        if (val < 10) val = 10; // Minimum 10 seconds safety
+        if (val > 3600) val = 3600; // Max 1 hour
+        
+        if (_fsTimeout != (unsigned long)val) {
+            _fsTimeout = (unsigned long)val;
+            char buf[16]; snprintf(buf, sizeof(buf), "%lu", _fsTimeout);
+            mqttClient.publish(topicFailsafeTimeoutState.c_str(), buf, true);
+            if (_fsCallback) _fsCallback(_fsEnabled, _fsTimeout);
+        }
+    }
     // legacy topic 'setPwm' removed
 }
 
 void EvseMqttController::enableCurrentTest(bool enable)
 {
     evse->enableCurrentTest(enable);
+}
+
+bool EvseMqttController::connected()
+{
+    return mqttClient.connected();
+}
+
+void EvseMqttController::setFailsafeConfig(bool enabled, unsigned long timeout)
+{
+    _fsEnabled = enabled;
+    _fsTimeout = timeout;
+    // If connected, update the state topics immediately
+    if (mqttClient.connected()) {
+        mqttClient.publish(topicFailsafeState.c_str(), _fsEnabled ? "1" : "0", true);
+        char buf[16]; snprintf(buf, sizeof(buf), "%lu", _fsTimeout);
+        mqttClient.publish(topicFailsafeTimeoutState.c_str(), buf, true);
+    }
+}
+
+void EvseMqttController::onFailsafeCommand(std::function<void(bool, unsigned long)> callback) {
+    _fsCallback = callback;
 }
 
 // ---------------------- Home Assistant Discovery ----------------------
@@ -258,6 +315,18 @@ void EvseMqttController::publishHADiscovery()
     snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_pwm_test/config", base, deviceId.c_str());
     snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Test\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"min\":0,\"max\":100,\"step\":1,\"unique_id\":\"%s_pwm_test\"}",
              topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str());
+    mqttClient.publish(topicBuf, payloadBuf, true);
+
+    // --- Switch: Failsafe Enable ---
+    snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_failsafe/config", base, deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE MQTT Failsafe\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_failsafe\"}",
+             topicSetFailsafe.c_str(), topicFailsafeState.c_str(), deviceId.c_str());
+    mqttClient.publish(topicBuf, payloadBuf, true);
+
+    // --- Number: Failsafe Timeout ---
+    snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_failsafe_t/config", base, deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Failsafe Timeout\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"s\",\"min\":10,\"max\":3600,\"unique_id\":\"%s_failsafe_t\"}",
+             topicSetFailsafeTimeout.c_str(), topicFailsafeTimeoutState.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     logger.info("[MQTT] HA discovery published");

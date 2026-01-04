@@ -41,6 +41,13 @@ public:
     EvseLogger(Stream& out = Serial) : output(&out) {}
 
     void log(LogLevel level, const char* msg) {
+        unsigned long t = micros();
+        unsigned long s = t / 1000000UL;
+        unsigned long us = t % 1000000UL;
+        char ts[32];
+        snprintf(ts, sizeof(ts), "[%lu.%06lu] ", s, us);
+        output->print(ts);
+
         const char* prefix = "";
         switch (level) {
             case LOG_DEBUG: prefix = "[DEBUG] "; break;
@@ -102,4 +109,3 @@ public:
 extern EvseLogger logger;
 
 #endif // EVSE_LOGGER_H
-

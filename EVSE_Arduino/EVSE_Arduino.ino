@@ -1,24 +1,6 @@
 /*!
  * @file EVSE_Arduino.ino
  * AUTHOR:      Noel Vellemans
- * VERSION:     5.6.5
- * LICENSE:     GNU General Public License v2.0 (GPLv2)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
-*/
-
-/*!
- * @file EVSE_Arduino.ino
- * AUTHOR:      Noel Vellemans
  * VERSION:     5.6.6
  * LICENSE:     GNU General Public License v2.0 (GPLv2)
  */
@@ -51,6 +33,7 @@
 Pilot pilot;
 EvseCharge evse(pilot);
 EvseMqttController mqttController(evse);
+TaskHandle_t evseTaskHandle = NULL;
 
 struct AppConfig {
     String wifiSsid;
@@ -69,6 +52,8 @@ struct AppConfig {
     bool pauseImmediate = true;
     unsigned long lowLimitResumeDelayMs = 300000UL;
     float maxCurrent = 32.0f;
+    bool mqttFailsafeEnabled = false;
+    unsigned long mqttFailsafeTimeout = 600; // Seconds
 };
 
 Preferences prefs;
@@ -93,7 +78,7 @@ const char* dashStyle =
 ".stat-diag { background: #1a2a2a; padding: 12px; margin: 10px 0; border-radius: 6px; border-left: 6px solid #00ffcc; text-align: left; color: #00ffcc; font-family: monospace; font-size: 0.82em; }"
 ".btn { color: #121212; background: #ffcc00; padding: 12px; border-radius: 6px; font-weight: bold; text-decoration: none; display: inline-block; margin-top: 10px; border: none; cursor: pointer; text-align: center; font-size: 0.95em; width:100%; }"
 ".btn-red { background: #cc3300; color: #fff; }"
-".footer { color: #666; font-size: 0.72em; margin-top: 25px; border-top: 1px solid #333; padding-top: 15px; font-family: monospace; text-align: center; }"
+".footer { color: #666; font-size: 0.95em; margin-top: 25px; border-top: 1px solid #333; padding-top: 15px; font-family: monospace; text-align: center; }"
 "label { display:block; text-align:left; margin-top:10px; color:#ccc; }"
 "input,select { width:100%; padding:10px; border-radius:6px; border:1px solid #333; background:#151515; color:#eee; margin-top:6px; transition: 0.3s; }"
 "input:disabled { background: #0f0f0f; color: #444; border-color: #222; opacity: 0.5; cursor: not-allowed; }"
@@ -168,6 +153,8 @@ static void loadConfig() {
     config.pauseImmediate = prefs.getBool("e_pause_im", true);
     config.lowLimitResumeDelayMs = prefs.getULong("e_res_delay", 300000UL);
     config.maxCurrent = prefs.getFloat("e_max_cur", 32.0f);
+    config.mqttFailsafeEnabled = prefs.getBool("m_safe", false);
+    config.mqttFailsafeTimeout = prefs.getULong("m_safe_t", 600);
     prefs.end();
 }
 
@@ -181,6 +168,8 @@ static void saveConfig() {
     prefs.putString("w_user", config.wwwUser); prefs.putString("w_pwd",  config.wwwPass);
     prefs.putBool("e_dis_low", config.disableAtLowLimit); prefs.putBool("e_pause_im", config.pauseImmediate);
     prefs.putULong("e_res_delay", config.lowLimitResumeDelayMs); prefs.putFloat("e_max_cur", config.maxCurrent);
+    prefs.putBool("m_safe", config.mqttFailsafeEnabled);
+    prefs.putULong("m_safe_t", config.mqttFailsafeTimeout);
     prefs.end();
 }
 
@@ -200,6 +189,7 @@ static void handleRoot() {
             return;
         }
         String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width'>" + String(dashStyle) + "</head><body><div class='container'>";
+        h.reserve(1024); // Prevent heap fragmentation
         h += "<h1>EVSE SETUP</h1><form method='POST' action='/saveConfig'>";
         h += "<label>SSID</label><input name='ssid' id='ssid' value='"+config.wifiSsid+"'>";
         h += "<label>PASS</label><input name='pass' type='password' value='"+config.wifiPass+"'>";
@@ -214,9 +204,19 @@ static void handleRoot() {
     }
 
     String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
+    h.reserve(1500); // Prevent heap fragmentation
     h += "<h1>" + deviceId + "</h1><span class='version-tag'>CONTROLLER ONLINE</span>";
-    h += "<div class='stat' style='font-size: 1.1em;'>STATUS: " + getVehicleStateText() + "<br>CURRENT LIMIT: " + String(evse.getCurrentLimit(), 1) + " A</div>";
+    h += "<div class='stat' style='font-size: 1.0em;'>STATUS: " + getVehicleStateText() + "<br>CURRENT LIMIT: " + String(evse.getCurrentLimit(), 1) + " A</div>";
     h += "<div style='display:flex; gap:10px;'><a class='btn' href='/cmd?do=start'>START</a><a class='btn btn-red' href='/cmd?do=stop'>STOP</a></div>";
+
+    h += "<div class='diag-header'>System Diagnostics</div>";
+    h += "<div class='stat-diag' style='font-size: 1.0em;'>";
+    h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
+    h += "<b>PILOT VOLTAGE:</b> " + String(pilot.getVoltage(), 1) + " V<br>";
+    h += "<b>FREE HEAP:</b> " + String(ESP.getFreeHeap()) + " Bytes<br>";
+    h += "<b>UPTIME:</b> " + getUptime() + "<br>";
+    h += "<b>RESET REASON:</b> " + getRebootReason() + "</div>";
+
     h += "<a class='btn' style='margin-top:20px;' href='/settings'>SYSTEM SETTINGS</a>";
     h += "<div class='footer'>SYSTEM: " + getVersionString() + "<br>BUILD: " + String(__DATE__) + " " + String(__TIME__) + "<br>&copy; 2026 Noel Vellemans.</div></div></body></html>";
     webServer.send(200, "text/html", h);
@@ -225,12 +225,14 @@ static void handleRoot() {
 static void handleSettingsMenu() {
     if (!checkAuth()) return;
     String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'><h1>EVSE SETTINGS</h1>";
+    h.reserve(1500); // Prevent heap fragmentation
     h += "<span class='version-tag'>" + getVersionString() + "</span>";
-    h += "<div class='stat'><b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "<br><b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm</div>";
+    h += "<div class='stat'><b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "</div>";
     
     // Cyan-Green Diagnostics block
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag'>";
+    h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
     h += "<b>PILOT VOLTAGE:</b> " + String(pilot.getVoltage(), 1) + " V<br>";
     h += "<b>FREE HEAP:</b> " + String(ESP.getFreeHeap()) + " Bytes<br>";
     h += "<b>UPTIME:</b> " + getUptime() + "<br>";
@@ -248,6 +250,7 @@ static void handleSettingsMenu() {
 static void handleCmd() {
     if (!checkAuth()) return;
     String op = webServer.arg("do");
+    logger.infof("[WEB] Command received: %s", op.c_str());
     if (op == "start") evse.startCharging();
     else if (op == "stop") evse.stopCharging();
     webServer.sendHeader("Location", "/", true); webServer.send(302, "text/plain", "");
@@ -256,7 +259,9 @@ static void handleCmd() {
 static void handleSaveConfig() {
     if (!checkAuth() && !apMode) return;
     if (webServer.hasArg("maxcur")) {
-        config.maxCurrent = webServer.arg("maxcur").toFloat();
+        float newMax = webServer.arg("maxcur").toFloat();
+        // Safety: Constrain current between 6A (J1772 min) and 80A (Reasonable max)
+        config.maxCurrent = constrain(newMax, 6.0f, 80.0f);
         config.disableAtLowLimit = (webServer.arg("dislow") == "1");
         config.lowLimitResumeDelayMs = webServer.arg("lldelay").toInt();
     }
@@ -265,6 +270,8 @@ static void handleSaveConfig() {
         config.mqttPort = webServer.arg("mqport").toInt();
         config.mqttUser = webServer.arg("mquser"); 
         config.mqttPass = webServer.arg("mqpass");
+        config.mqttFailsafeEnabled = (webServer.arg("mqsafe") == "1");
+        config.mqttFailsafeTimeout = webServer.arg("mqsafet").toInt();
     }
     if (webServer.hasArg("wuser")) { 
         config.wwwUser = webServer.arg("wuser"); 
@@ -281,6 +288,9 @@ static void handleSaveConfig() {
         }
     }
     saveConfig();
+    // Sync changes to MQTT controller so it can publish new state
+    mqttController.setFailsafeConfig(config.mqttFailsafeEnabled, config.mqttFailsafeTimeout);
+
     if (apMode) {
         webServer.send(200, "text/plain", "Rebooting...");
         delay(2000); ESP.restart();
@@ -304,6 +314,8 @@ static void handleConfigMqtt() {
     String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>MQTT Config</h1><form method='POST' action='/saveConfig'>";
     h += "<label>Host<input name='mqhost' value='"+config.mqttHost+"'></label><label>Port<input name='mqport' type='number' value='"+String(config.mqttPort)+"'></label>";
     h += "<label>User<input name='mquser' value='"+config.mqttUser+"'></label><label>Pass<input name='mqpass' type='password' value='"+config.mqttPass+"'></label>";
+    h += "<label>Safety Failsafe<select name='mqsafe'><option value='0' "+String(!config.mqttFailsafeEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttFailsafeEnabled?"selected":"")+">Stop Charge on Loss</option></select></label>";
+    h += "<label>Failsafe Timeout (sec)<input name='mqsafet' type='number' value='"+String(config.mqttFailsafeTimeout)+"'></label>";
     h += "<button class='btn' type='submit'>SAVE</button></form><a class='btn btn-red' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
@@ -357,10 +369,23 @@ static void handleUpdate() {
 static void startCaptivePortal() {
     apMode = true; WiFi.mode(WIFI_AP); WiFi.softAP((deviceId + "-SETUP").c_str());
     dnsServer.start(53, "*", WiFi.softAPIP());
+    logger.info("[NET] Starting Captive Portal (AP Mode)");
+    logger.infof("[NET] AP SSID: %s-SETUP", deviceId.c_str());
+    logger.infof("[NET] AP IP  : %s", WiFi.softAPIP().toString().c_str());
     webServer.on("/", HTTP_GET, handleRoot);
     webServer.on("/saveConfig", HTTP_POST, handleSaveConfig);
     webServer.onNotFound(handleRoot);
     webServer.begin();
+}
+
+// --- DUAL CORE TASK ---
+// Run EVSE logic on a dedicated high-priority task to prevent WiFi/Web lag
+// from affecting safety timings.
+void evseLoopTask(void* parameter) {
+    for (;;) {
+        evse.loop();
+        vTaskDelay(pdMS_TO_TICKS(50)); // Run at ~20Hz to prevent starving the Web UI
+    }
 }
 
 void setup() {
@@ -375,6 +400,7 @@ void setup() {
     esp_task_wdt_add(NULL); 
 
     ArduinoOTA.onStart([]() {
+        if (evseTaskHandle != NULL) vTaskSuspend(evseTaskHandle);
         evse.stopCharging(); 
         pilot.disable(); 
     });
@@ -384,11 +410,26 @@ void setup() {
     deviceId = "EVSE-" + String((uint32_t)(mac >> 32), HEX);
     loadConfig();
 
+    logger.info("================================================");
+    logger.infof("  EVSE - KERNEL %d.%d.%d", KERNEL_VERSION_MAJOR, KERNEL_VERSION_MINOR, KERNEL_VERSION_PATCH);
+    logger.infof("  CODENAME : %s", KERNEL_CODENAME);
+    logger.infof("  BUILD    : %s %s", __DATE__, __TIME__);
+    logger.infof("  DEVICE ID: %s", deviceId.c_str());
+    logger.info("================================================");
+
     ChargingSettings cs;
     cs.maxCurrent = config.maxCurrent; 
     cs.disableAtLowLimit = config.disableAtLowLimit;
     cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
     evse.setup(cs);
+
+    // Link MQTT Failsafe commands to AppConfig
+    mqttController.setFailsafeConfig(config.mqttFailsafeEnabled, config.mqttFailsafeTimeout);
+    mqttController.onFailsafeCommand([](bool enabled, unsigned long timeout){
+        config.mqttFailsafeEnabled = enabled;
+        config.mqttFailsafeTimeout = timeout;
+        saveConfig(); // Persist to NVS
+    });
 
     if (config.wifiSsid.length() == 0) {
         startCaptivePortal();
@@ -405,6 +446,10 @@ void setup() {
         if (WiFi.status() != WL_CONNECTED) {
             startCaptivePortal();
         } else {
+            logger.info("[NET] WiFi Connected!");
+            logger.infof("[NET] SSID     : %s", config.wifiSsid.c_str());
+            logger.infof("[NET] IP ADDR  : %s", WiFi.localIP().toString().c_str());
+            logger.infof("[NET] HOSTNAME : %s", deviceId.c_str());
             applyMqttConfig();
             webServer.on("/", HTTP_GET, handleRoot);
             webServer.on("/settings", HTTP_GET, handleSettingsMenu);
@@ -431,21 +476,28 @@ void setup() {
     }
     MDNS.begin(deviceId.c_str());
     ArduinoOTA.begin();
+
+    // Create the Safety Task on Core 1 (App Core) with higher priority (2) than loop (1)
+    // This ensures charging logic takes precedence over Network/UI.
+    xTaskCreatePinnedToCore(evseLoopTask, "EVSE_Logic", 8192, NULL, 2, &evseTaskHandle, 1);
 }
 
 void loop() {
     esp_task_wdt_reset(); 
     webServer.handleClient();
     if (apMode) dnsServer.processNextRequest();
-    evse.loop();
     mqttController.loop();
     ArduinoOTA.handle();
+    
     // MQTT HEARTBEAT & FAILSAFE
-    //if (mqttController.connected()) {
-    //    lastMqttSeen = millis();
-    //} else if (mqttSafetyEnabled && (millis() - lastMqttSeen > MQTT_LOSS_TIMEOUT)) {
-    //    if (evse.isCharging()) {
-    //        logger.error("[SAFETY] MQTT Connection Lost > 10m. !!! TODO WHAT DO DO HERE !!! ");
-    //    }
-    //}
+    static unsigned long lastMqttSeen = 0;
+    if (mqttController.connected()) {
+        lastMqttSeen = millis();
+    } else if (config.mqttFailsafeEnabled && (millis() - lastMqttSeen > (config.mqttFailsafeTimeout * 1000UL))) {
+        // If we are charging and haven't seen the broker for [timeout] seconds, STOP.
+        if (evse.getState() == STATE_CHARGING) {
+            logger.error("[SAFETY] MQTT Connection Lost. Failsafe triggered: Stopping Charge.");
+            evse.stopCharging();
+        }
+    }
 }

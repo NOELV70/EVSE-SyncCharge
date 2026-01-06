@@ -7,7 +7,7 @@
  * components to manage charging state, current limits, and safety behaviors.
  *
  * @copyright (C) Noel Vellemans 2026
- * @license MIT
+ * @license GNU General Public License v2.0 (GPLv2)
  * @version 1.0.0
  * @date 2026-01-02
  ******************************************************************************/
@@ -35,6 +35,12 @@ void EvseCharge::setup(ChargingSettings settings_) {
     vehicleState = VEHICLE_NOT_CONNECTED;
     state = STATE_READY;
     _actualCurrentUpdated = 0;
+    
+    // SAFETY: Initialize error lockout as FAIL-SAFE (true = locked)
+    // Prevents restart immediately after watchdog reboot if vehicle was in error state
+    // Only cleared after confirming vehicle is safely disconnected
+    errorLockout = true;
+    logger.info("[EVSE] Error lockout initialized (fail-safe)");
 
     logger.info("[EVSE] Setup done");
 }
@@ -42,6 +48,7 @@ void EvseCharge::setup(ChargingSettings settings_) {
 void EvseCharge::loop() {
     relay->loop();
     updateVehicleState();
+    managePwmAndRelay();           // SAE J1772 state machine
     checkResumeFromLowLimit();
 }
 
@@ -70,6 +77,13 @@ void EvseCharge::updateVehicleState() {
 
 void EvseCharge::startCharging() {
     logger.info("[EVSE] startCharging() called");
+    
+    // SAFETY: Error lockout prevents restart after watchdog/crash recovery
+    // Must be explicitly cleared when vehicle transitions to VEHICLE_NOT_CONNECTED
+    if (errorLockout) {
+        logger.warn("[EVSE] Start ignored: Error lockout ACTIVE - vehicle error/no-power detected (disconnect vehicle to clear)");
+        return;
+    }
     if (state == STATE_CHARGING) {
         logger.warn("[EVSE] Start ignored: Already charging");
         return;
@@ -77,7 +91,9 @@ void EvseCharge::startCharging() {
     if (vehicleState != VEHICLE_CONNECTED &&
         vehicleState != VEHICLE_READY &&
         vehicleState != VEHICLE_READY_VENTILATION_REQUIRED) {
-        logger.warnf("[EVSE] Start ignored: Vehicle not ready (State: %d)", vehicleState);
+        char stateBuf[32];
+        vehicleStateToText(vehicleState, stateBuf);
+        logger.warnf("[EVSE] Start ignored: Vehicle not ready (%s)", stateBuf);
         return;
     }
     logger.info("[EVSE] Start charging now");
@@ -221,27 +237,30 @@ void EvseCharge::applyCurrentLimit() {
             else
                 relay->open();
         } else {
-            // Current limit below minimum
+            // Current limit below minimum (dynamic power throttling for solar budget)
             if (settings.disableAtLowLimit) {
-                // Put pilot into pause/standby (no PWM). If vehicle is connected, CP will be interpreted as State B (~9V via vehicle pull-down),
-                // otherwise State A (~12V). Control relay behavior per configuration to emulate A- or B-like pause.
-                pilot->standby();
+                // PAUSE MODE: Maintain PWM with reduced duty instead of hard standby
+                // Vehicle interprets continuous low-duty PWM as reduced charging capacity
+                // Relay controlled per configuration; resume after delay
+                pilot->currentLimit(currentLimit);  // Keep PWM, just lower duty
+                
                 if (settings.acRelaisOpenAtPause) {
-                    // A-like hard pause: open immediately
                     relay->openImmediately();
                 } else {
-                    // B-like temporary pause: open with safety delay
                     relay->open();
                 }
                 if (!pausedAtLowLimit) {
-                    logger.info("[EVSE] Paused pilot due to low current limit (< MIN_CURRENT)");
+                    logger.infof("[EVSE] Low power pause: PWM set to %.2f A (solar budget insufficient)", currentLimit);
                     pausedAtLowLimit = true;
                     pausedSince = millis();
                 }
             } else {
-                logger.info("[EVSE] Pilot will be limited to low current limit ( == MIN_CURRENT)");
-                // Normal apply - minit to min in PILOT code ! 
+                // THROTTLE MODE: Allow current below MIN_CURRENT for continuous solar throttling
+                // No pause/resume delay logic - direct PWM adjustment
+                logger.infof("[EVSE] Applying low current limit: %.2f A (solar throttling)", currentLimit);
                 pilot->currentLimit(currentLimit);
+                // Clear pause flag since we're not actually pausing, just throttling
+                pausedAtLowLimit = false;
             }
         }
     } else {
@@ -271,6 +290,107 @@ void EvseCharge::setLowLimitResumeDelay(unsigned long ms) {
     logger.infof("[EVSE] lowLimitResumeDelayMs set to %lu ms", ms);
 }
 
+/* =========================
+ * SAE J1772 State Machine
+ * ========================= */
+
+void EvseCharge::managePwmAndRelay() {
+    // Detect vehicle state transitions for error handling
+    if (vehicleState != lastManagedVehicleState) {
+        lastManagedVehicleState = vehicleState;
+        
+        // Handle error and no-power states
+        if (vehicleState == VEHICLE_ERROR || vehicleState == VEHICLE_NO_POWER) {
+            if (!errorLockout) {
+                errorLockout = true;
+                char stateBuf[32];
+                vehicleStateToText(vehicleState, stateBuf);
+                logger.warnf("[EVSE] Error lockout activated: %s", stateBuf);
+                if (state == STATE_CHARGING) {
+                    stopCharging();  // Emergency stop
+                }
+            }
+        }
+        // SAFETY: Clear error lockout only when vehicle is safely disconnected (fail-safe recovery)
+        // This is the only safe path to recover from error/no-power states
+        else if (vehicleState == VEHICLE_NOT_CONNECTED && errorLockout) {
+            errorLockout = false;
+            logger.warn("[EVSE] Error lockout CLEARED: Vehicle fully disconnected (safe to accept new start commands)");
+        }
+    }
+    
+    // State machine: Manage PWM and relay based on vehicle state and charging state
+    // 
+    // SAE J1772 Spec Firmware Actions:
+    // State A (NOT_CONNECTED):      PWM Off; Relay Open
+    // State B (CONNECTED):          PWM On (low); Relay Open (vehicle in standby)
+    // State C (READY):              PWM On (full); Relay Closed (if charging)
+    // State D (VENTILATION):        PWM On (full); Relay Closed (if charging, log vent)
+    // State E/F (ERROR):            Emergency Stop; Lockout
+    // State 4 (NO_POWER):           PWM Off; Relay Open; Lockout
+    
+    switch (vehicleState) {
+        case VEHICLE_NOT_CONNECTED:
+            // State A: No vehicle detected
+            pilot->standby();
+            relay->open();
+            break;
+            
+        case VEHICLE_CONNECTED:
+            // State B: Vehicle detected but not ready
+            // Keep PWM on at low level to signal readiness, relay open
+            // User can start charging from here (but must be current-limited)
+            if (state != STATE_CHARGING) {
+                pilot->currentLimit(MIN_CURRENT);  // Low current signaling
+            }
+            relay->open();
+            break;
+            
+        case VEHICLE_READY:
+            // State C: Vehicle ready for charging
+            if (state == STATE_CHARGING) {
+                // Apply current limit and close relay
+                pilot->currentLimit(currentLimit);
+                relay->close();
+            } else {
+                // Not charging but ready: maintain low current signal
+                pilot->currentLimit(MIN_CURRENT);
+                relay->open();
+            }
+            break;
+            
+        case VEHICLE_READY_VENTILATION_REQUIRED:
+            // State D: Vehicle ready with ventilation requirement
+            logger.info("[EVSE] Vehicle ventilation mode detected");
+            if (state == STATE_CHARGING) {
+                // Apply current limit and close relay
+                pilot->currentLimit(currentLimit);
+                relay->close();
+            } else {
+                // Not charging but ready: maintain low current signal
+                pilot->currentLimit(MIN_CURRENT);
+                relay->open();
+            }
+            break;
+            
+        case VEHICLE_NO_POWER:
+            // State 4: No power detected - error condition
+            pilot->standby();
+            relay->open();
+            break;
+            
+        case VEHICLE_ERROR:
+            // State E/F: Error condition - emergency stop
+            pilot->standby();
+            relay->openImmediately();
+            break;
+            
+        default:
+            pilot->standby();
+            relay->open();
+            break;
+    }
+}
 unsigned long EvseCharge::getLowLimitResumeDelay() const {
 //    logger.debugf("[EVSE] getLowLimitResumeDelay -> %lu ms", settings.lowLimitResumeDelayMs);
     return settings.lowLimitResumeDelayMs;

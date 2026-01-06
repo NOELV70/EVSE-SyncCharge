@@ -8,7 +8,7 @@
  * discovery messages.
  *
  * @copyright (C) Noel Vellemans 2026
- * @license MIT
+ * @license GNU General Public License v2.0 (GPLv2)
  * @version 1.0.0
  * @date 2026-01-02
  ******************************************************************************/

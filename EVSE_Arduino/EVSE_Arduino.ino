@@ -383,6 +383,9 @@ static void startCaptivePortal() {
 // from affecting safety timings.
 void evseLoopTask(void* parameter) {
     for (;;) {
+        // SAFETY: Reset watchdog so if main loop blocks, EVSE task prevents hard reboot
+        // This ensures charging safety logic continues even if WiFi/Web UI freezes
+        esp_task_wdt_reset();
         evse.loop();
         vTaskDelay(pdMS_TO_TICKS(50)); // Run at ~20Hz to prevent starving the Web UI
     }

@@ -7,7 +7,7 @@
  * current limit application, and integrates with `Pilot` and `Relay` modules.
  *
  * @copyright (C) Noel Vellemans 2026
- * @license MIT
+ * @license GNU General Public License v2.0 (GPLv2)
  * @version 1.0.0
  * @date 2026-01-02
  ******************************************************************************/
@@ -59,6 +59,7 @@ private:
     void updateVehicleState();
     void applyCurrentLimit();
     void checkResumeFromLowLimit();
+    void managePwmAndRelay();      // SAE J1772 state machine (PWM/relay automation)
 
 private:
     Pilot* pilot;
@@ -78,6 +79,11 @@ private:
     bool pausedAtLowLimit = false;
     // Timestamp (millis) when pilot was paused due to low current limit
     unsigned long pausedSince = 0UL;
+    // SAFETY: Error lockout defaults to TRUE (fail-safe) - prevents restart after crash/reboot
+    // Only cleared when vehicle is safely disconnected (VEHICLE_NOT_CONNECTED state)
+    bool errorLockout = true;
+    // Track previous vehicle state to detect error transitions
+    VEHICLE_STATE_T lastManagedVehicleState = VEHICLE_NOT_CONNECTED;
 
     EvseEventHandler vehicleStateChange = nullptr;
     EvseEventHandler stateChange = nullptr;

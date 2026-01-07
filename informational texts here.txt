@@ -100,3 +100,55 @@ Energy Monitoring: Integrating a power meter (HLW8012 or similar) to track kWh p
 OTA Refinement: Enhancing the Over-The-Air update stability for remote maintenance.
 
 Enclosure Design: Moving the prototype from the bench into a weather-rated housing.
+
+
+
+
+
+
+================
+Simulating an EVSE Pilot Line with Cascade Resistors
+
+The EVSE pilot line uses specific voltages to communicate the charging state to an electric vehicle. By creating a simple cascade resistor network, we can simulate these signals safely.
+
+Components
+
+Series resistor: 1 kΩ (in line with PWM)
+
+BAT48 diode: drop ~0.3 V
+
+Cascade resistors (E12 practical values):
+
+R9 = 3.3 kΩ → simulates 9 V state
+
+R6 = 1.6 kΩ → added in parallel with R9 for 6 V state
+
+R3 = 560 Ω → added in parallel with R9 || R6 for 3 V state
+
+How it Works
+
+9 V state: Only R9 is connected. Pilot voltage ≈ 8.9–10.4 V for PWM 12–14 V.
+
+6 V state: R6 is added in parallel with R9. Pilot voltage drops to ≈ 5.9–6.95 V.
+
+3 V state: R3 is added in parallel with R9 || R6. Pilot voltage ≈ 2.9–3.45 V.
+
+0 V state: Short to ground.
+
+The series resistor limits current from the PWM supply.
+
+The BAT48 diode subtracts ~0.3 V, ensuring proper voltage levels.
+
+In parallel resistors, each resistor sees the same voltage; total load decreases as more resistors are added.
+
+Summary
+
+Practical and achievable: All resistors are standard E12 values.
+
+Voltage range: Designed for PWM 12–14 V supply.
+
+Cascade setup: Add resistors progressively in parallel to simulate lower pilot voltages.
+
+Application: Simple, safe way to simulate an EV on an EVSE pilot line for testing or prototyping.
+
+============================

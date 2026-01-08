@@ -330,13 +330,68 @@ static void handleSaveConfig() {
     }
 }
 
+static void handleTestCmd() {
+    if (!checkAuth()) return;
+    String act = webServer.arg("act");
+    if (act == "on") {
+        evse.enableCurrentTest(true);
+        webServer.send(200, "text/plain", "Enabled");
+    } else if (act == "off") {
+        evse.enableCurrentTest(false);
+        webServer.send(200, "text/plain", "Disabled");
+    } else if (act == "pwm") {
+        float duty = webServer.arg("val").toFloat();
+        // Convert Duty % to Amps (Inverse of J1772)
+        float amps = 0.0f;
+        if (duty <= 85.0f) amps = duty * 0.6f;
+        else amps = (duty - 64.0f) * 2.5f;
+        
+        // Clamp to configured max current for display consistency
+        if (amps > config.maxCurrent) amps = config.maxCurrent;
+
+        evse.setCurrentTest(amps);
+        webServer.send(200, "text/plain", String(amps));
+    } else {
+        webServer.send(400, "text/plain", "Bad Request");
+    }
+}
+
+static void handleTestMode() {
+    if (!checkAuth()) return;
+    
+    // Calculate max duty cycle based on configured maxCurrent
+    int maxDuty = 96;
+    if (config.maxCurrent < 80.0f) {
+        if (config.maxCurrent <= 51.0f) maxDuty = (int)(config.maxCurrent / 0.6f);
+        else maxDuty = (int)((config.maxCurrent / 2.5f) + 64.0f);
+    }
+    int initVal = (50 > maxDuty) ? maxDuty : 50;
+
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>";
+    h += "<h1>PWM TEST LAB</h1><span class='version-tag'>WARNING: FORCE PWM</span>";
+    h += "<div class='stat' style='border-left-color:#673ab7'>PILOT VOLTAGE: <span id='pv'>--</span> V<br>CALC AMPS: <span id='ca'>--</span> A</div>";
+    h += "<div style='margin:20px 0; padding:15px; background:#222; border-radius:8px;'>";
+    h += "<label>PWM DUTY: <span id='dval'>" + String(initVal) + "</span>%</label>";
+    h += "<input type='range' min='10' max='" + String(maxDuty) + "' value='" + String(initVal) + "' style='width:100%' oninput='setPwm(this.value)' onchange='setPwm(this.value)'>";
+    h += "</div>";
+    h += "<div style='display:flex; gap:10px;'><button class='btn' onclick=\"fetch('/testCmd?act=on')\">ENABLE TEST</button><button class='btn btn-red' onclick=\"fetch('/testCmd?act=off')\">DISABLE TEST</button></div>";
+    h += "<a href='/config/evse' class='btn' style='background:#444; margin-top:20px'>BACK</a>";
+    h += "<script>";
+    h += "function setPwm(v) { document.getElementById('dval').innerText=v; fetch('/testCmd?act=pwm&val='+v).then(r=>r.text()).then(t=>{document.getElementById('ca').innerText=parseFloat(t).toFixed(1);}); }";
+    h += "setInterval(function(){ fetch('/status').then(r=>r.json()).then(d=>{ document.getElementById('pv').innerText=d.pvolt.toFixed(2); }); }, 1000);";
+    h += "</script></div></body></html>";
+    webServer.send(200, "text/html", h);
+}
+
 static void handleConfigEvse() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig'>";
     h += "<label>Max Current (A)<input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
     h += "<label>Allow Charging < 6A?<select name='allowlow'><option value='0' "+String(!config.allowBelow6AmpCharging?"selected":"")+">No (Strict J1772)</option><option value='1' "+String(config.allowBelow6AmpCharging?"selected":"")+">Yes (Solar/Throttle)</option></select></label>";
     h += "<label>Resume delay (ms)<input name='lldelay' type='number' value='"+String(config.lowLimitResumeDelayMs)+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE</button></form><a class='btn btn-red' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<button class='btn' type='submit'>SAVE</button></form>";
+    h += "<a href='/test' class='btn' style='background:#673ab7; color:#fff; margin-top:15px;'>PWM TEST LAB</a>";
+    h += "<a class='btn btn-red' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -521,6 +576,8 @@ void setup() {
             webServer.on("/status", HTTP_GET, handleStatus);
             webServer.on("/settings", HTTP_GET, handleSettingsMenu);
             webServer.on("/config/evse", HTTP_GET, handleConfigEvse);
+            webServer.on("/test", HTTP_GET, handleTestMode);
+            webServer.on("/testCmd", HTTP_GET, handleTestCmd);
             webServer.on("/config/mqtt", HTTP_GET, handleConfigMqtt);
             webServer.on("/config/wifi", HTTP_GET, handleConfigWifi);
             webServer.on("/config/auth", HTTP_GET, handleConfigAuth);

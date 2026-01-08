@@ -43,8 +43,8 @@ void EvseMqttController::begin(const char* mqttServer, int mqttPort,
     topicVehicle                = "evse/" + deviceId + "/vehicleState";
     topicCurrent                = "evse/" + deviceId + "/current";
     topicPwmDuty                = "evse/" + deviceId + "/pwmDuty";
-    topicDisableAtLowLimit      = "evse/" + deviceId + "/setDisableAtLowLimit";
-    topicDisableAtLowLimitState = "evse/" + deviceId + "/disableAtLowLimit";
+    topicDisableAtLowLimit      = "evse/" + deviceId + "/setAllowBelow6AmpCharging";
+    topicDisableAtLowLimitState = "evse/" + deviceId + "/allowBelow6AmpCharging";
     topicLowLimitResumeDelay    = "evse/" + deviceId + "/lowLimitResumeDelay";
     topicCurrentTest            = "evse/" + deviceId + "/test/current";
     topicSetFailsafe            = "evse/" + deviceId + "/setFailsafe";
@@ -97,7 +97,7 @@ void EvseMqttController::loop()
 
             // Sync current configuration state to MQTT
             char buf[32];
-            snprintf(buf, sizeof(buf), "%d", evse->getDisableAtLowLimit() ? 1 : 0);
+            snprintf(buf, sizeof(buf), "%d", evse->getAllowBelow6AmpCharging() ? 1 : 0);
             mqttClient.publish(topicDisableAtLowLimitState.c_str(), buf, true);
 
             snprintf(buf, sizeof(buf), "%lu", evse->getLowLimitResumeDelay());
@@ -174,11 +174,11 @@ void EvseMqttController::mqttCallback(char* topic, byte* payload, unsigned int l
         String lower = msg;
         lower.toLowerCase();
         if (lower == "1" || lower == "on" || lower == "true" || lower == "enable") {
-            evse->setDisableAtLowLimit(true);
+            evse->setAllowBelow6AmpCharging(true);
             // Publish updated state
             mqttClient.publish(topicDisableAtLowLimitState.c_str(), "1", true);
         } else {
-            evse->setDisableAtLowLimit(false);
+            evse->setAllowBelow6AmpCharging(false);
             mqttClient.publish(topicDisableAtLowLimitState.c_str(), "0", true);
         }
     }

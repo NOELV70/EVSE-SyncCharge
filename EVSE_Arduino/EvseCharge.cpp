@@ -17,9 +17,6 @@
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 
-extern TaskHandle_t evseTaskHandle;
-extern void evseLoopTask(void* parameter);
-
 EvseCharge::EvseCharge(Pilot &pilotRef) {
     pilot = &pilotRef;
     relay = new Relay();
@@ -211,6 +208,14 @@ void EvseCharge::checkResumeFromLowLimit() {
 }
 
 void EvseCharge::applyCurrentLimit() {
+    // J1772 Compliance: If not charging (and not in test mode), force DC Standby.
+    // Prevents sending PWM (State B2) when we are only in State B1 (EVSE Ready, but not authorized).
+    if (state != STATE_CHARGING && !currentTest) {
+        pilot->standby();
+        relay->open();
+        return;
+    }
+
     if (vehicleState == VEHICLE_CONNECTED ||
         vehicleState == VEHICLE_READY ||
         vehicleState == VEHICLE_READY_VENTILATION_REQUIRED) {
@@ -278,16 +283,16 @@ void EvseCharge::applyCurrentLimit() {
     }
 }
 
-void EvseCharge::setDisableAtLowLimit(bool enable) {
-    settings.disableAtLowLimit = enable;
-    logger.infof("[EVSE] disableAtLowLimit set to %s", enable ? "ENABLED" : "DISABLED");
+void EvseCharge::setAllowBelow6AmpCharging(bool allow) {
+    settings.disableAtLowLimit = !allow; // Inverted logic: Allow=true means DisablePause=true (wait, DisablePause=false) -> DisableAtLowLimit=false
+    logger.infof("[EVSE] AllowBelow6AmpCharging set to %s", allow ? "TRUE (Throttle)" : "FALSE (Strict J1772)");
     // Immediately apply behavior in case currentLimit is below threshold
     applyCurrentLimit();
 }
 
-bool EvseCharge::getDisableAtLowLimit() const {
-//    logger.debugf("[EVSE] getDisableAtLowLimit -> %s", settings.disableAtLowLimit ? "ENABLED" : "DISABLED");
-    return settings.disableAtLowLimit;
+bool EvseCharge::getAllowBelow6AmpCharging() const {
+//    logger.debugf("[EVSE] getAllowBelow6AmpCharging -> %s", !settings.disableAtLowLimit ? "TRUE" : "FALSE");
+    return !settings.disableAtLowLimit;
 }
 
 void EvseCharge::setLowLimitResumeDelay(unsigned long ms) {
@@ -343,11 +348,9 @@ void EvseCharge::managePwmAndRelay() {
             
         case VEHICLE_CONNECTED:
             // State B: Vehicle detected but not ready
-            // Keep PWM on at low level to signal readiness, relay open
-            // User can start charging from here (but must be current-limited)
-            if (state != STATE_CHARGING) {
-                pilot->currentLimit(MIN_CURRENT);  // Low current signaling
-            }
+            // J1772: If not charging, offer DC (Standby), not PWM.
+            // PWM implies "Power Available" which might confuse the car if we aren't started.
+            if (state != STATE_CHARGING) pilot->standby();
             relay->open();
             break;
             
@@ -358,8 +361,8 @@ void EvseCharge::managePwmAndRelay() {
                 pilot->currentLimit(currentLimit);
                 relay->close();
             } else {
-                // Not charging but ready: maintain low current signal
-                pilot->currentLimit(MIN_CURRENT);
+                // Not charging: Force DC Standby. Tells car "Wait".
+                pilot->standby();
                 relay->open();
             }
             break;
@@ -372,8 +375,8 @@ void EvseCharge::managePwmAndRelay() {
                 pilot->currentLimit(currentLimit);
                 relay->close();
             } else {
-                // Not charging but ready: maintain low current signal
-                pilot->currentLimit(MIN_CURRENT);
+                // Not charging: Force DC Standby.
+                pilot->standby();
                 relay->open();
             }
             break;
@@ -399,17 +402,4 @@ void EvseCharge::managePwmAndRelay() {
 unsigned long EvseCharge::getLowLimitResumeDelay() const {
 //    logger.debugf("[EVSE] getLowLimitResumeDelay -> %lu ms", settings.lowLimitResumeDelayMs);
     return settings.lowLimitResumeDelayMs;
-}
-
-
-void EvseCharge::startTask() {
-    xTaskCreatePinnedToCore(evseLoopTask, "EVSE_Logic", 8192, NULL, 2, &evseTaskHandle, 1);
-    esp_task_wdt_add(evseTaskHandle);  // Add EVSE task to watchdog monitor
-}
-
-void EvseCharge::stopTask() {
-    if (evseTaskHandle != NULL) {
-        vTaskDelete(evseTaskHandle);
-        evseTaskHandle = NULL;
-    }
 }

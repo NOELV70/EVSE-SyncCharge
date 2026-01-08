@@ -38,17 +38,15 @@ public:
     unsigned long getElapsedTime() const;
 
     void setCurrentLimit(float amps);
-    // Enable/disable automatic pilot pause when current limit below MIN_CURRENT
-    void setDisableAtLowLimit(bool enable);
-    bool getDisableAtLowLimit() const;
+    // Configure behavior when current limit is below MIN_CURRENT (6A)
+    // true = Allow continuous throttling (Solar mode); false = Strict J1772 (Pause/Stop)
+    void setAllowBelow6AmpCharging(bool allow);
+    bool getAllowBelow6AmpCharging() const;
     // Configure cooldown (ms) to wait after low-limit pause before auto-resume
     void setLowLimitResumeDelay(unsigned long ms);
     unsigned long getLowLimitResumeDelay() const;
     void updateActualCurrent(ActualCurrent current);
     ActualCurrent getActualCurrent() const;
-
-    void startTask();
-    void stopTask();
 
 
     float getPilotDuty() const;

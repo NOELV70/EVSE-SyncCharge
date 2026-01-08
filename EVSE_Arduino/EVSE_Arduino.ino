@@ -48,7 +48,7 @@ struct AppConfig {
     String mqttPass;
     String wwwUser = "admin";
     String wwwPass = "admin";
-    bool disableAtLowLimit = true;
+    bool allowBelow6AmpCharging = false; // Default false = Strict J1772
     bool pauseImmediate = true;
     unsigned long lowLimitResumeDelayMs = 300000UL;
     float maxCurrent = 32.0f;
@@ -149,7 +149,7 @@ static void loadConfig() {
     config.mqttPass = prefs.getString("m_pass", "");
     config.wwwUser  = prefs.getString("w_user", "admin");
     config.wwwPass  = prefs.getString("w_pwd",  "admin");
-    config.disableAtLowLimit = prefs.getBool("e_dis_low", true);
+    config.allowBelow6AmpCharging = prefs.getBool("e_allow_low", false);
     config.pauseImmediate = prefs.getBool("e_pause_im", true);
     config.lowLimitResumeDelayMs = prefs.getULong("e_res_delay", 300000UL);
     config.maxCurrent = prefs.getFloat("e_max_cur", 32.0f);
@@ -166,7 +166,7 @@ static void saveConfig() {
     prefs.putString("m_host", config.mqttHost); prefs.putUShort("m_port", config.mqttPort);
     prefs.putString("m_user", config.mqttUser); prefs.putString("m_pass", config.mqttPass);
     prefs.putString("w_user", config.wwwUser); prefs.putString("w_pwd",  config.wwwPass);
-    prefs.putBool("e_dis_low", config.disableAtLowLimit); prefs.putBool("e_pause_im", config.pauseImmediate);
+    prefs.putBool("e_allow_low", config.allowBelow6AmpCharging); prefs.putBool("e_pause_im", config.pauseImmediate);
     prefs.putULong("e_res_delay", config.lowLimitResumeDelayMs); prefs.putFloat("e_max_cur", config.maxCurrent);
     prefs.putBool("m_safe", config.mqttFailsafeEnabled);
     prefs.putULong("m_safe_t", config.mqttFailsafeTimeout);
@@ -203,19 +203,18 @@ static void handleRoot() {
         return;
     }
 
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta http-equiv='refresh' content='5'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
     h.reserve(1500); // Prevent heap fragmentation
     h += "<h1>" + deviceId + "</h1><span class='version-tag'>CONTROLLER ONLINE</span>";
-    h += "<div class='stat' style='font-size: 1.0em;'>STATUS: " + getVehicleStateText() + "<br>CURRENT LIMIT: " + String(evse.getCurrentLimit(), 1) + " A</div>";
+    h += "<div class='stat' style='font-size: 1.0em;'>STATUS: " + getVehicleStateText() + "<br>CURRENT LIMIT: " + String(evse.getCurrentLimit(), 1) + " A<br>PILOT VOLTAGE: " + String(pilot.getVoltage(), 2) + " V</div>";
     h += "<div style='display:flex; gap:10px;'><a class='btn' href='/cmd?do=start'>START</a><a class='btn btn-red' href='/cmd?do=stop'>STOP</a></div>";
 
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag' style='font-size: 1.0em;'>";
-    h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
-    h += "<b>PILOT VOLTAGE:</b> " + String(pilot.getVoltage(), 2) + " V<br>";
-    h += "<b>FREE HEAP:</b> " + String(ESP.getFreeHeap()) + " Bytes<br>";
     h += "<b>UPTIME:</b> " + getUptime() + "<br>";
-    h += "<b>RESET REASON:</b> " + getRebootReason() + "</div>";
+    h += "<b>RESET REASON:</b> " + getRebootReason() + "<br>";
+    h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
+    h += "<b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "</div>";
 
     h += "<a class='btn' style='margin-top:20px;' href='/settings'>SYSTEM SETTINGS</a>";
     h += "<div class='footer'>SYSTEM: " + getVersionString() + "<br>BUILD: " + String(__DATE__) + " " + String(__TIME__) + "<br>&copy; 2026 Noel Vellemans.</div></div></body></html>";
@@ -227,16 +226,14 @@ static void handleSettingsMenu() {
     String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'><h1>EVSE SETTINGS</h1>";
     h.reserve(1500); // Prevent heap fragmentation
     h += "<span class='version-tag'>" + getVersionString() + "</span>";
-    h += "<div class='stat'><b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "</div>";
     
     // Cyan-Green Diagnostics block
     h += "<div class='diag-header'>System Diagnostics</div>";
-    h += "<div class='stat-diag'>";
-    h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
-    h += "<b>PILOT VOLTAGE:</b> " + String(pilot.getVoltage(), 2) + " V<br>";
-    h += "<b>FREE HEAP:</b> " + String(ESP.getFreeHeap()) + " Bytes<br>";
+    h += "<div class='stat-diag' style='font-size: 1.0em;'>";
     h += "<b>UPTIME:</b> " + getUptime() + "<br>";
-    h += "<b>RESET REASON:</b> " + getRebootReason() + "</div>";
+    h += "<b>RESET REASON:</b> " + getRebootReason() + "<br>";
+    h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
+    h += "<b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "</div>";
 
     h += "<a href='/config/evse' class='btn'>EVSE PARAMETERS</a><a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
     h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a><a href='/config/auth' class='btn'>ADMIN SECURITY</a>";
@@ -262,7 +259,7 @@ static void handleSaveConfig() {
         float newMax = webServer.arg("maxcur").toFloat();
         // Safety: Constrain current between 6A (J1772 min) and 80A (Reasonable max)
         config.maxCurrent = constrain(newMax, 6.0f, 80.0f);
-        config.disableAtLowLimit = (webServer.arg("dislow") == "1");
+        config.allowBelow6AmpCharging = (webServer.arg("allowlow") == "1");
         config.lowLimitResumeDelayMs = webServer.arg("lldelay").toInt();
     }
     if (webServer.hasArg("mqhost")) {
@@ -303,7 +300,7 @@ static void handleConfigEvse() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig'>";
     h += "<label>Max Current (A)<input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
-    h += "<label>Behavior<select name='dislow'><option value='1' "+String(config.disableAtLowLimit?"selected":"")+">Stop at 6A</option><option value='0' "+String(!config.disableAtLowLimit?"selected":"")+">Allow < 6A</option></select></label>";
+    h += "<label>Allow Charging < 6A?<select name='allowlow'><option value='0' "+String(!config.allowBelow6AmpCharging?"selected":"")+">No (Strict J1772)</option><option value='1' "+String(config.allowBelow6AmpCharging?"selected":"")+">Yes (Solar/Throttle)</option></select></label>";
     h += "<label>Resume delay (ms)<input name='lldelay' type='number' value='"+String(config.lowLimitResumeDelayMs)+"'></label>";
     h += "<button class='btn' type='submit'>SAVE</button></form><a class='btn btn-red' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
@@ -382,6 +379,10 @@ static void startCaptivePortal() {
 // Run EVSE logic on a dedicated high-priority task to prevent WiFi/Web lag
 // from affecting safety timings.
 void evseLoopTask(void* parameter) {
+    // SAFETY: Register this task with the Watchdog Timer.
+    // Without this, esp_task_wdt_reset() inside this loop does nothing.
+    esp_task_wdt_add(NULL);
+
     for (;;) {
         // SAFETY: Reset watchdog so if main loop blocks, EVSE task prevents hard reboot
         // This ensures charging safety logic continues even if WiFi/Web UI freezes
@@ -422,7 +423,7 @@ void setup() {
 
     ChargingSettings cs;
     cs.maxCurrent = config.maxCurrent; 
-    cs.disableAtLowLimit = config.disableAtLowLimit;
+    cs.disableAtLowLimit = !config.allowBelow6AmpCharging; // Invert logic for internal struct
     cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
     evse.setup(cs);
 

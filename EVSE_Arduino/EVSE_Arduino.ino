@@ -94,6 +94,20 @@ const char* dynamicScript =
 "window.onload = toggleStaticFields;"
 "</script>";
 
+const char* ajaxScript = 
+"<script>"
+"setInterval(function(){"
+"fetch('/status').then(r=>r.json()).then(d=>{"
+"document.getElementById('vst').innerText=d.vst;"
+"document.getElementById('clim').innerText=d.clim.toFixed(1);"
+"document.getElementById('pwm').innerText=d.pwm;"
+"document.getElementById('pvolt').innerText=d.pvolt.toFixed(2);"
+"document.getElementById('acrel').innerText=d.acrel;"
+"document.getElementById('upt').innerText=d.upt;"
+"document.getElementById('rssi').innerText=d.rssi;"
+"});},1000);"
+"</script>";
+
 const char* logoSvg = "<svg class='logo' viewBox='0 0 100 100'><path d='M10 50 L50 10 L90 50 V90 H10 Z' fill='none' stroke='#ffcc00' stroke-width='4'/><path d='M30 75 Q30 65 50 65 Q70 65 70 75 L73 82 H27 Z' fill='#ffcc00'/><path d='M45 25 L35 50 H50 L40 75 L65 40 H50 L60 25 Z' fill='#ffcc00' stroke='#121212' stroke-width='1'/></svg>";
 
 /* --- HELPERS --- */
@@ -179,6 +193,21 @@ static void applyMqttConfig() {
     }
 }
 
+static void handleStatus() {
+    String json = "{";
+    float amps = evse.getCurrentLimit();
+    String pwmStr = (evse.getState() == STATE_CHARGING) ? (String(evse.getPilotDuty(), 1) + "%") : "DISABLED";
+    json += "\"vst\":\"" + getVehicleStateText() + "\",";
+    json += "\"clim\":" + String(amps, 1) + ",";
+    json += "\"pwm\":\"" + pwmStr + "\",";
+    json += "\"pvolt\":" + String(pilot.getVoltage(), 2) + ",";
+    json += "\"acrel\":\"" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "\",";
+    json += "\"upt\":\"" + getUptime() + "\",";
+    json += "\"rssi\":" + String(WiFi.RSSI());
+    json += "}";
+    webServer.send(200, "application/json", json);
+}
+
 /* --- WEB HANDLERS --- */
 static void handleRoot() {
     if (apMode) {
@@ -203,21 +232,24 @@ static void handleRoot() {
         return;
     }
 
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta http-equiv='refresh' content='5'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
     h.reserve(1500); // Prevent heap fragmentation
     h += "<h1>" + deviceId + "</h1><span class='version-tag'>CONTROLLER ONLINE</span>";
-    h += "<div class='stat' style='font-size: 1.0em;'>STATUS: " + getVehicleStateText() + "<br>CURRENT LIMIT: " + String(evse.getCurrentLimit(), 1) + " A<br>PILOT VOLTAGE: " + String(pilot.getVoltage(), 2) + " V</div>";
-    h += "<div style='display:flex; gap:10px;'><a class='btn' href='/cmd?do=start'>START</a><a class='btn btn-red' href='/cmd?do=stop'>STOP</a></div>";
+    float amps = evse.getCurrentLimit();
+    String pwmStr = (evse.getState() == STATE_CHARGING) ? (String(evse.getPilotDuty(), 1) + "%") : "DISABLED";
+    h += "<div class='stat' style='font-size: 1.0em;'>STATUS: <span id='vst'>" + getVehicleStateText() + "</span><br>PWM/CURRENT: <span id='pwm'>" + pwmStr + "</span> (<span id='clim'>" + String(amps, 1) + "</span> A)<br>PILOT VOLTAGE: <span id='pvolt'>" + String(pilot.getVoltage(), 2) + "</span> V<br>AC RELAY: <span id='acrel'>" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "</span></div>";
+    h += "<div style='display:flex; gap:10px;'><a class='btn' href='/cmd?do=start'>START</a><a class='btn' style='background:#ff9800; color:#fff' href='/cmd?do=stop'>PAUSE</a><a class='btn btn-red' href='/cmd?do=disable'>STOP</a></div>";
 
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag' style='font-size: 1.0em;'>";
-    h += "<b>UPTIME:</b> " + getUptime() + "<br>";
+    h += "<b>UPTIME:</b> <span id='upt'>" + getUptime() + "</span><br>";
     h += "<b>RESET REASON:</b> " + getRebootReason() + "<br>";
-    h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
+    h += "<b>WIFI SIGNAL:</b> <span id='rssi'>" + String(WiFi.RSSI()) + "</span> dBm<br>";
     h += "<b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "</div>";
 
     h += "<a class='btn' style='margin-top:20px;' href='/settings'>SYSTEM SETTINGS</a>";
-    h += "<div class='footer'>SYSTEM: " + getVersionString() + "<br>BUILD: " + String(__DATE__) + " " + String(__TIME__) + "<br>&copy; 2026 Noel Vellemans.</div></div></body></html>";
+    h += "<div class='footer'>SYSTEM: " + getVersionString() + "<br>BUILD: " + String(__DATE__) + " " + String(__TIME__) + "<br>&copy; 2026 Noel Vellemans.</div></div>";
+    h += String(ajaxScript) + "</body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -239,6 +271,7 @@ static void handleSettingsMenu() {
     h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a><a href='/config/auth' class='btn'>ADMIN SECURITY</a>";
     h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a>";
     h += "<a href='/reboot' class='btn btn-red' onclick=\"return confirm('Reboot System?')\">REBOOT DEVICE</a>";
+    h += "<form method='POST' action='/factReset' onsubmit=\"return confirm('ERASE ALL?')\"><button class='btn btn-red'>FACTORY RESET</button></form>";
     h += "<a href='/' class='btn' style='background:#444; color:#fff;'>CLOSE</a>";
     h += "</div></body></html>";
     webServer.send(200, "text/html", h);
@@ -250,6 +283,7 @@ static void handleCmd() {
     logger.infof("[WEB] Command received: %s", op.c_str());
     if (op == "start") evse.startCharging();
     else if (op == "stop") evse.stopCharging();
+    else if (op == "disable") { evse.stopCharging(); pilot.disable(); }
     webServer.sendHeader("Location", "/", true); webServer.send(302, "text/plain", "");
 }
 
@@ -317,6 +351,18 @@ static void handleConfigMqtt() {
     webServer.send(200, "text/html", h);
 }
 
+static void handleWifiScan() {
+    if (!checkAuth()) return;
+    int n = WiFi.scanNetworks();
+    String json = "[";
+    for (int i = 0; i < n; ++i) {
+        if (i) json += ",";
+        json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    }
+    json += "]";
+    webServer.send(200, "application/json", json);
+}
+
 static void handleConfigWifi() {
     if (!checkAuth()) return;
 
@@ -330,13 +376,17 @@ static void handleConfigWifi() {
 
     String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>Network Config</h1><form method='POST' action='/saveConfig'>";
     h += "<label>SSID<input name='ssid' id='ssid' value='"+config.wifiSsid+"'></label>";
+    h += "<button type='button' class='btn' style='background:#ffcc00' onclick='scanWifi()'>SCAN WIFI</button>";
+    h += "<div id='scan-res' style='text-align:left; margin-top:10px; max-height:150px; overflow-y:auto;'></div>";
     h += "<label>Password<input name='pass' type='password' value='"+config.wifiPass+"'></label>";
     h += "<label>IP Assignment<select name='mode' id='mode' onchange='toggleStaticFields()'><option value='0' "+String(!config.useStatic?"selected":"")+">DHCP</option><option value='1' "+String(config.useStatic?"selected":"")+">STATIC IP</option></select></label>";
     h += "<label>Static IP<input name='ip' id='ip' value='"+dispIp+"'></label>";
     h += "<label>Gateway<input name='gw' id='gw' value='"+dispGw+"'></label>";
     h += "<label>Subnet<input name='sn' id='sn' value='"+dispSn+"'></label>";
     h += "<button class='btn' type='submit'>SAVE & RECONNECT</button></form><a class='btn btn-red' href='/settings'>CANCEL</a></div>";
-    h += String(dynamicScript) + "</body></html>";
+    h += String(dynamicScript);
+    h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;};c.appendChild(e);});});}</script>";
+    h += "</body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -352,8 +402,20 @@ static void handleConfigAuth() {
 
 static void handleFactoryReset() {
     if (!checkAuth()) return;
-    webServer.send(200, "text/plain", "Wiping... Rebooting.");
-    delay(1000); prefs.begin(PREFS_NAMESPACE, false); prefs.clear(); prefs.end(); ESP.restart();
+    // Safety: Stop the logic session and physically disable the pilot signal.
+    // Note: stopCharging() alone leaves the pilot active (State B) for normal pauses.
+    // For a reset, we want to kill the signal completely.
+    evse.stopCharging();
+    pilot.disable();
+
+    webServer.send(200, "text/plain", "Factory Reset: Stopping Charge, Wiping WiFi/Settings, Rebooting...");
+    delay(1000); 
+    
+    // Wipe settings and WiFi credentials
+    prefs.begin(PREFS_NAMESPACE, false); prefs.clear(); prefs.end(); 
+    WiFi.disconnect(true, true); // Turn off WiFi and erase SDK credentials
+    delay(1000);
+    ESP.restart();
 }
 
 static void handleUpdate() {
@@ -456,14 +518,17 @@ void setup() {
             logger.infof("[NET] HOSTNAME : %s", deviceId.c_str());
             applyMqttConfig();
             webServer.on("/", HTTP_GET, handleRoot);
+            webServer.on("/status", HTTP_GET, handleStatus);
             webServer.on("/settings", HTTP_GET, handleSettingsMenu);
             webServer.on("/config/evse", HTTP_GET, handleConfigEvse);
             webServer.on("/config/mqtt", HTTP_GET, handleConfigMqtt);
             webServer.on("/config/wifi", HTTP_GET, handleConfigWifi);
             webServer.on("/config/auth", HTTP_GET, handleConfigAuth);
+            webServer.on("/scan", HTTP_GET, handleWifiScan);
             webServer.on("/saveConfig", HTTP_POST, handleSaveConfig);
             webServer.on("/cmd", HTTP_GET, handleCmd);
             webServer.on("/factory_reset", HTTP_GET, handleFactoryReset);
+            webServer.on("/factReset", HTTP_POST, handleFactoryReset);
             webServer.on("/reboot", HTTP_ANY, [](){ if(checkAuth()){ webServer.send(200, "text/plain", "Rebooting..."); delay(1000); ESP.restart(); }});
             webServer.on("/update", HTTP_GET, handleUpdate);
             webServer.on("/doUpdate", HTTP_POST, [](){

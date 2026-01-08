@@ -47,6 +47,10 @@ public:
     void updateActualCurrent(ActualCurrent current);
     ActualCurrent getActualCurrent() const;
 
+    void startTask();
+    void stopTask();
+
+
     float getPilotDuty() const;
 
     void enableCurrentTest(bool enable);

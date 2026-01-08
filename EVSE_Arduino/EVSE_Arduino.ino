@@ -212,7 +212,7 @@ static void handleRoot() {
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag' style='font-size: 1.0em;'>";
     h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
-    h += "<b>PILOT VOLTAGE:</b> " + String(pilot.getVoltage(), 1) + " V<br>";
+    h += "<b>PILOT VOLTAGE:</b> " + String(pilot.getVoltage(), 2) + " V<br>";
     h += "<b>FREE HEAP:</b> " + String(ESP.getFreeHeap()) + " Bytes<br>";
     h += "<b>UPTIME:</b> " + getUptime() + "<br>";
     h += "<b>RESET REASON:</b> " + getRebootReason() + "</div>";
@@ -233,7 +233,7 @@ static void handleSettingsMenu() {
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag'>";
     h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
-    h += "<b>PILOT VOLTAGE:</b> " + String(pilot.getVoltage(), 1) + " V<br>";
+    h += "<b>PILOT VOLTAGE:</b> " + String(pilot.getVoltage(), 2) + " V<br>";
     h += "<b>FREE HEAP:</b> " + String(ESP.getFreeHeap()) + " Bytes<br>";
     h += "<b>UPTIME:</b> " + getUptime() + "<br>";
     h += "<b>RESET REASON:</b> " + getRebootReason() + "</div>";

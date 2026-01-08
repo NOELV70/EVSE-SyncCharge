@@ -21,23 +21,22 @@
 // =========================
 // Compile-time Configuration
 // =========================
-// #define USE_PILOT_IRQ  // Uncomment to use 20kHz ISR sampling (independent of loop)
-                           // Comment out to use original loop-based sampling
 
 // =========================
 // Constants
 // =========================
+// Current limits (SAE J1772)
 constexpr float MIN_CURRENT = 6.0f;
 constexpr float MAX_CURRENT = 64.0f;
 
-// Voltage conversion calibration
-constexpr float PILOT_VOLTAGE_SCALE = 8.0/12.0;
-constexpr float PILOT_VOLTAGE_OFFSET = 0;
+constexpr float PILOT_VOLTAGE_SCALE = ((1200.0+3300.0)/1200.0); // Voltage divider scale factor
 
-// ADC conversion constants
-//constexpr float ADC_VREF = 3.3f;
-constexpr float ADC_VREF = 12.0;
-constexpr int ADC_MAX_VALUE = 4095;
+// Voltage thresholds in millivolts (SAE J1772 state detection)
+constexpr int VOLTAGE_STATE_NOT_CONNECTED = 11000;    // >= 11V = Not connected
+constexpr int VOLTAGE_STATE_CONNECTED = 8000;          // >= 8V  = Connected, not ready
+constexpr int VOLTAGE_STATE_READY = 5000;              // >= 5V  = Ready
+constexpr int VOLTAGE_STATE_VENTILATION = 2000;        // >= 2V  = Ready, ventilation required
+constexpr int VOLTAGE_STATE_NO_POWER = 0;              // >= 0V  = No power
 
 // =========================
 // Pilot class
@@ -50,6 +49,7 @@ private:
     VEHICLE_STATE_T lastVehicleState = VEHICLE_STATE_COUNT;  // track last state for change detection
 public:
     Pilot();
+    void begin();
     void standby();
     void disable();
     void currentLimit(float amps);
@@ -57,10 +57,6 @@ public:
     float getVoltage();
     VEHICLE_STATE_T read();
     float getPwmDuty();
-#ifdef USE_PILOT_IRQ
-    void initPilotIrq();  // Initialize 20kHz timer ISR
-    void deinitPilotIrq(); // Cleanup timer
-#endif
 };
 
 // =========================

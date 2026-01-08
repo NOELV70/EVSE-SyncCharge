@@ -35,32 +35,6 @@ constexpr int PILOT_PWM_CHANNEL = 0; // LEDC channel (kept for compatibility)
 constexpr unsigned long SAMPLE_DURATION_US = (2 * 1000000) / PILOT_PWM_FREQ; // Sample for 2 PWM periods
 
 /* =========================
- * IRQ Sampling (25x PWM frequency - parametric)
- * ========================= */
-#ifdef USE_PILOT_IRQ
-constexpr uint32_t PILOT_ISR_FREQ_HZ = PILOT_PWM_FREQ * 25;  // 25kHz @ 1kHz PWM, scales automatically
-constexpr uint32_t PILOT_ISR_SAMPLES_PER_WINDOW = (PILOT_ISR_FREQ_HZ / PILOT_PWM_FREQ) * 2;  // Samples in 2 PWM periods
-
-volatile int16_t pilot_sample_max = 0;
-volatile uint32_t pilot_sample_count = 0;
-volatile int16_t pilot_last_peak = 0;
-hw_timer_t* pilot_timer = nullptr;
-
-void IRAM_ATTR pilot_timer_isr() {
-    int adc = analogRead(PIN_PILOT_IN);
-    if (adc > pilot_sample_max) 
-        pilot_sample_max = adc;
-    
-    pilot_sample_count++;
-    if (pilot_sample_count >= PILOT_ISR_SAMPLES_PER_WINDOW) {
-        pilot_last_peak = pilot_sample_max;  // Save peak
-        pilot_sample_max = 0;                // Reset for next window
-        pilot_sample_count = 0;
-    }
-}
-#endif
-
-/* =========================
  * Analog input pin
  * ========================= */
 constexpr int PIN_PILOT_IN = 36; // ADC1 channel 0
@@ -94,6 +68,16 @@ Pilot::Pilot()
 void Pilot::disable()
 {
     standby();
+}
+void Pilot::begin()
+{
+    // Explicit ADC configuration (ESP32)
+    analogReadResolution(12);                       // 0–4095
+    analogSetPinAttenuation(PIN_PILOT_IN, ADC_11db); // ~0–3.9V range
+
+    pinMode(PIN_PILOT_IN, INPUT);
+
+    logger.info("[PILOT] ADC configured: 12-bit, 11dB attenuation");
 }
 
 void Pilot::standby()
@@ -144,40 +128,31 @@ void Pilot::currentLimit(float amps)
 
 float Pilot::readPin()
 {
-#ifdef USE_PILOT_IRQ
-    // IRQ mode: read pre-sampled peak from ISR (frequency = 25x PWM_FREQ)
-    int pinValue = pilot_last_peak;
-    //logger.debugf("[PILOT] IRQ mode: using peak=%d", pinValue);
-#else
     // Loop mode: sample on-demand during 2 PWM periods
-    int pinValue = analogReadMax(PIN_PILOT_IN);
-#endif
-
-    // 1. Convert Raw ADC to Volts at the Pin
-    float pinVoltage = (float)pinValue * (ADC_VREF / (float)ADC_MAX_VALUE);
-    // 2. Convert Pin Volts to Actual Signal Volts (-12 to +12)
-    // Formula derived from: V_sig = pinVoltage * PILOT_VOLTAGE_SCALE + PILOT_VOLTAGE_OFFSET
-    this->voltage = (pinVoltage * PILOT_VOLTAGE_SCALE) + PILOT_VOLTAGE_OFFSET;    
-    logger.debugf("[PILOT] Analog: raw=%d, pinVoltage=%.2f, voltage=%.2f", pinValue, pinVoltage, this->voltage);
+    // analogReadMilliVolts() handles ADC conversion automatically (ESP32 boards core)
+    int pinValueMv = analogReadMilliVolts(PIN_PILOT_IN);
+    // Store as float in millivolts (no division by 1000)
+    this->voltage = (((float)(pinValueMv) * PILOT_VOLTAGE_SCALE)/1000.0);
+    logger.debugf("[PILOT] Analog: pinValueMv=%d Voltage=%f", pinValueMv, this->voltage);
     return this->voltage;
 }
 
 float Pilot::getVoltage()
 {
-    logger.debugf("[PILOT] getVoltage -> %.2f V", this->voltage);
+    logger.debugf("[PILOT] getVoltage -> %.3f V", this->voltage);
     return this->voltage;
 }
 
 VEHICLE_STATE_T Pilot::read()
 {
-    float voltage = floor(this->readPin());
+    int voltageMv = (int)this->readPin();  // Now in millivolts
 
     VEHICLE_STATE_T state;
-    if (voltage >= 11) state = VEHICLE_NOT_CONNECTED;
-    else if (voltage >= 8)  state = VEHICLE_CONNECTED;
-    else if (voltage >= 5)  state = VEHICLE_READY;
-    else if (voltage >= 2)  state = VEHICLE_READY_VENTILATION_REQUIRED;
-    else if (voltage >= 0)  state = VEHICLE_NO_POWER;
+    if (voltageMv >= VOLTAGE_STATE_NOT_CONNECTED)       state = VEHICLE_NOT_CONNECTED;
+    else if (voltageMv >= VOLTAGE_STATE_CONNECTED)      state = VEHICLE_CONNECTED;
+    else if (voltageMv >= VOLTAGE_STATE_READY)          state = VEHICLE_READY;
+    else if (voltageMv >= VOLTAGE_STATE_VENTILATION)    state = VEHICLE_READY_VENTILATION_REQUIRED;
+    else if (voltageMv >= VOLTAGE_STATE_NO_POWER)       state = VEHICLE_NO_POWER;
     else state = VEHICLE_ERROR;
     
     // Log only on state change
@@ -185,7 +160,7 @@ VEHICLE_STATE_T Pilot::read()
         lastVehicleState = state;
         char stateBuf[50];
         vehicleStateToText(state, stateBuf);
-        logger.debugf("[PILOT] Read: voltage=%.0f -> %s", voltage, stateBuf);
+        logger.debugf("[PILOT] Read: voltage=%d mV -> %s", voltageMv, stateBuf);
     }
     
     return state;
@@ -210,36 +185,3 @@ void vehicleStateToText(VEHICLE_STATE_T vehicleState, char* buffer)
     }
 }
 
-#ifdef USE_PILOT_IRQ
-/* =========================
- * IRQ Timer Setup/Teardown
- * ========================= */
-void Pilot::initPilotIrq()
-{
-    // Timer frequency = 25 * PWM_FREQ (scales automatically)
-    // ESP32 uses 80MHz APB clock
-    const uint32_t PRESCALER = 80;  // 80MHz / 80 = 1MHz clock
-    const uint32_t COUNTER_LIMIT = 1000000 / PILOT_ISR_FREQ_HZ;  // 1MHz / ISR_FREQ
-    
-    pilot_timer = timerBegin(0, PRESCALER, true);  // Use timer 0, prescaler 80, count up
-    timerAttachInterrupt(pilot_timer, &pilot_timer_isr, true);  // Edge-triggered
-    timerAlarmWrite(pilot_timer, COUNTER_LIMIT, true);  // Reload on match
-    timerAlarmEnable(pilot_timer);
-    
-    logger.infof("[PILOT] IRQ sampling initialized: %lu Hz, %lu samples/window", 
-                 PILOT_ISR_FREQ_HZ, PILOT_ISR_SAMPLES_PER_WINDOW);
-}
-
-void Pilot::deinitPilotIrq()
-{
-    if (pilot_timer != nullptr) {
-        timerAlarmDisable(pilot_timer);
-        timerDetachInterrupt(pilot_timer);
-        timerEnd(pilot_timer);
-        pilot_timer = nullptr;
-    }
-    logger.info("[PILOT] IRQ sampling disabled");
-}
-#endif
-
-/* Key Observations from the Simulation:Pin C (The Car): Notice that when plugged in, the car sees slightly less than $9\text{V}$ and $6\text{V}$ (it sees $8.45\text{V}$ and $5.5\text{V}$). This is because your $12\text{k}\Omega$ sensing resistor (R4) adds a tiny bit of extra load. This is perfectly fine—car chargers have a tolerance, and anything within $\pm0.5\text{V}$ is usually accepted as valid.The -12V Floor: As you can see, the negative voltage at Pin C and Pin B stays exactly the same in every state. This confirms that the car’s diode is successfully blocking the negative swing, so the vehicle resistors don't affect it.MCU Safety: Your Pin B never goes negative. Even when the Op-amp hits $-12\text{V}$, Pin B stays at $+0.13\text{V}$ thanks to the R2 pull-up. This is safe for any $3.3\text{V}$ MCU.ADC Resolution: You have a clear $500\text{-unit}$ gap between being disconnected, plugged in, and charging. This makes it very easy to write stable software.Recommendation for your LogicYour code should detect the Peak of the signal.If $Peak > 3800$: State A (Disconnected)If $Peak$ is between $3300$ and $3700$: State B (Connected)If $Peak$ is between $2800$ and $3200$: State C (Charging)If the $Minimum$ value ever goes below $50$: Something is wrong (Negative spike). */

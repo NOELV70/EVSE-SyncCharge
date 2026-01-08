@@ -15,6 +15,10 @@
 #include "EvseCharge.h"
 #include "EvseLogger.h"
 #include <Arduino.h>
+#include <esp_task_wdt.h>
+
+extern TaskHandle_t evseTaskHandle;
+extern void evseLoopTask(void* parameter);
 
 EvseCharge::EvseCharge(Pilot &pilotRef) {
     pilot = &pilotRef;
@@ -28,6 +32,7 @@ void EvseCharge::preinit_hard() {
 void EvseCharge::setup(ChargingSettings settings_) {
     logger.info("[EVSE] Setup begin");
     relay->setup(LOW);
+    pilot->begin();
     pilot->standby();
 
     settings = settings_;
@@ -394,4 +399,17 @@ void EvseCharge::managePwmAndRelay() {
 unsigned long EvseCharge::getLowLimitResumeDelay() const {
 //    logger.debugf("[EVSE] getLowLimitResumeDelay -> %lu ms", settings.lowLimitResumeDelayMs);
     return settings.lowLimitResumeDelayMs;
+}
+
+
+void EvseCharge::startTask() {
+    xTaskCreatePinnedToCore(evseLoopTask, "EVSE_Logic", 8192, NULL, 2, &evseTaskHandle, 1);
+    esp_task_wdt_add(evseTaskHandle);  // Add EVSE task to watchdog monitor
+}
+
+void EvseCharge::stopTask() {
+    if (evseTaskHandle != NULL) {
+        vTaskDelete(evseTaskHandle);
+        evseTaskHandle = NULL;
+    }
 }

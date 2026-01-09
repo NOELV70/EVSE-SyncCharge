@@ -24,11 +24,11 @@ void EvseMqttController::begin(const char* mqttServer, int mqttPort,
                                const String& deviceIdString)
 {
     // Store the server host locally so the loop knows whether to run
-    this->serverHost = mqttServer ? String(mqttServer) : "";
+    serverHost = mqttServer ? String(mqttServer) : "";
     deviceId = deviceIdString;
     
     // If no host is provided, we stop here. The loop() guard will handle the rest.
-    if (this->serverHost.length() == 0) {
+    if (serverHost.length() == 0) {
         logger.warn("[MQTT] No host configured. MQTT interface is inactive.");
         return;
     }
@@ -51,10 +51,13 @@ void EvseMqttController::begin(const char* mqttServer, int mqttPort,
     topicFailsafeState          = "evse/" + deviceId + "/failsafe";
     topicSetFailsafeTimeout     = "evse/" + deviceId + "/setFailsafeTimeout";
     topicFailsafeTimeoutState   = "evse/" + deviceId + "/failsafeTimeout";
+    topicRcmConfig              = "evse/" + deviceId + "/config/rcm";
+    topicRcmState               = "evse/" + deviceId + "/rcm/enabled";
+    topicRcmFault               = "evse/" + deviceId + "/rcm/fault";
 
     mqttClient.setServer(mqttServer, mqttPort);
     mqttClient.setCallback([this](char* topic, byte* payload, unsigned int length) {
-        this->mqttCallback(topic, payload, length);
+        mqttCallback(topic, payload, length);
     });
 
     logger.infof("[MQTT] Configured for server: %s:%d", mqttServer, mqttPort);
@@ -92,6 +95,7 @@ void EvseMqttController::loop()
             mqttClient.subscribe(topicDisableAtLowLimit.c_str());
             mqttClient.subscribe(topicSetFailsafe.c_str());
             mqttClient.subscribe(topicSetFailsafeTimeout.c_str());
+            mqttClient.subscribe(topicRcmConfig.c_str());
 
             mqttClient.publish(topicState.c_str(), "online", true);
 
@@ -107,6 +111,10 @@ void EvseMqttController::loop()
             mqttClient.publish(topicFailsafeState.c_str(), _fsEnabled ? "1" : "0", true);
             snprintf(buf, sizeof(buf), "%lu", _fsTimeout);
             mqttClient.publish(topicFailsafeTimeoutState.c_str(), buf, true);
+
+            // Sync RCM state
+            mqttClient.publish(topicRcmState.c_str(), evse->isRcmEnabled() ? "1" : "0", true);
+            mqttClient.publish(topicRcmFault.c_str(), evse->isRcmTripped() ? "1" : "0", true);
 
             publishHADiscovery();
         }
@@ -149,6 +157,19 @@ void EvseMqttController::loop()
         snprintf(buf, sizeof(buf), "%.2f", pwmDuty);
         mqttClient.publish(topicPwmDuty.c_str(), buf, true);
         lastPwmDuty = pwmDuty;
+    }
+
+    bool rcmTripped = evse->isRcmTripped();
+    if (rcmTripped != lastRcmTripped) {
+        mqttClient.publish(topicRcmFault.c_str(), rcmTripped ? "1" : "0", true);
+        lastRcmTripped = rcmTripped;
+    }
+
+    bool rcmEn = evse->isRcmEnabled();
+    if (rcmEn != lastRcmEnabled) {
+        // This handles updates from Web UI reflecting in MQTT
+        mqttClient.publish(topicRcmState.c_str(), rcmEn ? "1" : "0", true);
+        lastRcmEnabled = rcmEn;
     }
 }
 
@@ -244,6 +265,16 @@ void EvseMqttController::mqttCallback(char* topic, byte* payload, unsigned int l
             if (_fsCallback) _fsCallback(_fsEnabled, _fsTimeout);
         }
     }
+    else if (strcmp(topic, topicRcmConfig.c_str()) == 0)
+    {
+        String lower = msg;
+        lower.toLowerCase();
+        bool newState = (lower == "1" || lower == "on" || lower == "true" || lower == "enable");
+        evse->setRcmEnabled(newState);
+        if (_rcmConfigCallback) _rcmConfigCallback(newState);
+        // State update handled in loop()
+    }
+
     // legacy topic 'setPwm' removed
 }
 
@@ -271,6 +302,10 @@ void EvseMqttController::setFailsafeConfig(bool enabled, unsigned long timeout)
 
 void EvseMqttController::onFailsafeCommand(std::function<void(bool, unsigned long)> callback) {
     _fsCallback = callback;
+}
+
+void EvseMqttController::onRcmConfigChanged(std::function<void(bool)> callback) {
+    _rcmConfigCallback = callback;
 }
 
 // ---------------------- Home Assistant Discovery ----------------------
@@ -327,6 +362,18 @@ void EvseMqttController::publishHADiscovery()
     snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_failsafe_t/config", base, deviceId.c_str());
     snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Failsafe Timeout\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"s\",\"min\":10,\"max\":3600,\"unique_id\":\"%s_failsafe_t\"}",
              topicSetFailsafeTimeout.c_str(), topicFailsafeTimeoutState.c_str(), deviceId.c_str());
+    mqttClient.publish(topicBuf, payloadBuf, true);
+
+    // --- Binary Sensor: RCM Fault ---
+    snprintf(topicBuf, sizeof(topicBuf), "%s/binary_sensor/%s_rcm_fault/config", base, deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE RCM Fault\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"device_class\":\"safety\",\"unique_id\":\"%s_rcm_fault\"}",
+             topicRcmFault.c_str(), deviceId.c_str());
+    mqttClient.publish(topicBuf, payloadBuf, true);
+
+    // --- Switch: RCM Enable ---
+    snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_rcm_enable/config", base, deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE RCM Protection\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_rcm_enable\"}",
+             topicRcmConfig.c_str(), topicRcmState.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     logger.info("[MQTT] HA discovery published");

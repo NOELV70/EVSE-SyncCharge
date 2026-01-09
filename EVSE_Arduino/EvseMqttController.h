@@ -106,6 +106,7 @@ public:
     void enableCurrentTest(bool enable);
     void setFailsafeConfig(bool enabled, unsigned long timeout);
     void onFailsafeCommand(std::function<void(bool, unsigned long)> callback);
+    void onRcmConfigChanged(std::function<void(bool)> callback);
     bool connected();
 
 private:
@@ -121,6 +122,7 @@ private:
     bool _fsEnabled = false;
     unsigned long _fsTimeout = 600;
     std::function<void(bool, unsigned long)> _fsCallback;
+    std::function<void(bool)> _rcmConfigCallback;
 
     String deviceId;
     String mqttUser;
@@ -143,6 +145,9 @@ private:
     String topicFailsafeState;
     String topicSetFailsafeTimeout;
     String topicFailsafeTimeoutState;
+    String topicRcmConfig;      // Command to enable/disable
+    String topicRcmState;       // Status of config (1/0)
+    String topicRcmFault;       // Fault status (1=Tripped, 0=OK)
 
     // --- Last values for change detection ---
     STATE_T lastState = STATE_COUNT;
@@ -151,6 +156,8 @@ private:
     float lastCurrentL2 = -1;
     float lastCurrentL3 = -1;
     float lastPwmDuty = -1;
+    bool lastRcmTripped = false;
+    bool lastRcmEnabled = true;
 };
 
 #endif

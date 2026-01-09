@@ -48,6 +48,10 @@ public:
     void updateActualCurrent(ActualCurrent current);
     ActualCurrent getActualCurrent() const;
 
+    // RCM / RCD Control
+    void setRcmEnabled(bool enable);
+    bool isRcmEnabled() const;
+    bool isRcmTripped() const;
 
     float getPilotDuty() const;
 
@@ -84,6 +88,13 @@ private:
     // SAFETY: Error lockout defaults to TRUE (fail-safe) - prevents restart after crash/reboot
     // Only cleared when vehicle is safely disconnected (VEHICLE_NOT_CONNECTED state)
     bool errorLockout = true;
+    bool rcmEnabled = true; // Default to enabled for safety
+    bool rcmTripped = false; // Track specific RCM fault
+
+    // RCM Periodic Test
+    unsigned long lastRcmTestTime = 0;
+    static const unsigned long RCM_TEST_INTERVAL = 86400000UL; // 24 Hours
+
     // Track previous vehicle state to detect error transitions
     VEHICLE_STATE_T lastManagedVehicleState = VEHICLE_NOT_CONNECTED;
 

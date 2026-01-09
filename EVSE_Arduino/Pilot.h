@@ -43,7 +43,6 @@ constexpr int VOLTAGE_STATE_NO_POWER = 0;              // >= 0V  = No power
 // =========================
 class Pilot {
 private:
-    float voltage = 0.0f;
     float currentDutyPercent = 0.0f;
     bool pwmAttached = false;         // track if PWM is currently attached
     VEHICLE_STATE_T lastVehicleState = VEHICLE_STATE_COUNT;  // track last state for change detection
@@ -53,7 +52,9 @@ public:
     void standby();
     void disable();
     void currentLimit(float amps);
-    float readPin();
+    int readPin();
+    int analogReadMax();
+    float convertMv(int pinValueMv);
     float getVoltage();
     VEHICLE_STATE_T read();
     float getPwmDuty();

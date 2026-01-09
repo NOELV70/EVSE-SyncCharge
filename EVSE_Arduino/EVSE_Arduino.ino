@@ -1,8 +1,46 @@
-/*!
- * @file EVSE_Arduino.ino
- * AUTHOR:      Noel Vellemans
- * VERSION:     5.6.6
- * LICENSE:     GNU General Public License v2.0 (GPLv2)
+/*
+ * =========================================================================================
+ * Project:     Evse_Simplified (EVSE-Arduino)
+ * Description: A mission-critical, WiFi-enabled Electric Vehicle Supply Equipment (EVSE)
+ *              controller built on the dual-core ESP32 platform.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ *
+ * CORE CAPABILITIES:
+ *   - Smart Protocol Management: Full SAE J1772 implementation with 1kHz PWM generation
+ *     and high-precision ADC feedback for vehicle state detection (States A-F).
+ *   - IoT & Connectivity: Native MQTT stack with Home Assistant Auto-Discovery,
+ *     Captive Portal for zero-preset configuration, and OTA firmware updates.
+ *   - Network Intelligence: One-Click transition from DHCP to Static IP with auto-detection.
+ *   - Diagnostics: "Cyan-Diag" console showing real-time Pilot Voltage, Heap, and Uptime.
+ *
+ * SAFETY ARCHITECTURE:
+ *   - Hardware Watchdog (WDT): 8-second hardware supervisor to reset MCU on deadlocks.
+ *   - Synchronized PWM-Abort: Instantly switches Pilot to +12V (100% duty) on stop/fault
+ *     to electronically cease power draw before opening the relay.
+ *   - Mechanical Protection: Anti-chatter hysteresis (3000ms) and Pre-Init Pin Lockout
+ *     to prevent contactor wear and startup glitches.
+ *   - Residual Current Monitor (RCM): Integrated support for RCM fault detection and
+ *     periodic self-testing (IEC 62955 / IEC 61851 compliance).
+ *
+ * HARDWARE CONFIGURATION:
+ *   - MCU: ESP32 (Dual Core)
+ *   - Relay Control: GPIO 16 (High-Voltage AC Output)
+ *   - Pilot PWM: GPIO 27 (1kHz Control Signal)
+ *   - Pilot Feedback: GPIO 36 (ADC Input)
+ *
+ * -----------------------------------------------------------------------------------------
+ * This program is free software; you can redistribute it and/or modify it under the terms
+ * of the GNU General Public License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ * =========================================================================================
  */
 
 #include <Arduino.h>
@@ -19,18 +57,18 @@
 #include "EvseLogger.h"
 #include "Pilot.h"
 #include "EvseCharge.h"
+#include "Rcm.h"
 #include "EvseMqttController.h"
 
 /* --- VERSIONING --- */
-#define KERNEL_VERSION_MAJOR 5
-#define KERNEL_VERSION_MINOR 6
-#define KERNEL_VERSION_PATCH 6
-#define KERNEL_CODENAME      "Goose-Cyan-Diag"
+#define KERNEL_VERSION       "9.0.0"
+#define KERNEL_CODENAME      "GOOSE"
 #define BAUD_RATE 115200
 #define WDT_TIMEOUT 8 
 
 // Singletons
 Pilot pilot;
+Rcm rcm;
 EvseCharge evse(pilot);
 EvseMqttController mqttController(evse);
 TaskHandle_t evseTaskHandle = NULL;
@@ -54,6 +92,7 @@ struct AppConfig {
     float maxCurrent = 32.0f;
     bool mqttFailsafeEnabled = false;
     unsigned long mqttFailsafeTimeout = 600; // Seconds
+    bool rcmEnabled = true;
 };
 
 Preferences prefs;
@@ -77,6 +116,8 @@ const char* dashStyle =
 ".diag-header { color: #888; font-size: 0.7em; text-transform: uppercase; text-align: left; margin-top: 15px; margin-bottom: 5px; font-weight: bold; }"
 ".stat-diag { background: #1a2a2a; padding: 12px; margin: 10px 0; border-radius: 6px; border-left: 6px solid #00ffcc; text-align: left; color: #00ffcc; font-family: monospace; font-size: 0.82em; }"
 ".btn { color: #121212; background: #ffcc00; padding: 12px; border-radius: 6px; font-weight: bold; text-decoration: none; display: inline-block; margin-top: 10px; border: none; cursor: pointer; text-align: center; font-size: 0.95em; width:100%; }"
+".btn { color: #121212; background: #ffcc00; padding: 12px; border-radius: 6px; font-weight: bold; text-decoration: none; display: inline-block; margin-top: 10px; border: none; cursor: pointer; text-align: center; font-size: 0.95em; width:100%; transition: 0.3s; }"
+".btn:hover { opacity: 0.8; }"
 ".btn-red { background: #cc3300; color: #fff; }"
 ".footer { color: #666; font-size: 0.95em; margin-top: 25px; border-top: 1px solid #333; padding-top: 15px; font-family: monospace; text-align: center; }"
 "label { display:block; text-align:left; margin-top:10px; color:#ccc; }"
@@ -113,7 +154,7 @@ const char* logoSvg = "<svg class='logo' viewBox='0 0 100 100'><path d='M10 50 L
 /* --- HELPERS --- */
 String getVersionString() {
     char v[64];
-    sprintf(v, "Kernel: %d.%d.%d \"%s\"", KERNEL_VERSION_MAJOR, KERNEL_VERSION_MINOR, KERNEL_VERSION_PATCH, KERNEL_CODENAME);
+    sprintf(v, "Kernel: %s \"%s\"", KERNEL_VERSION, KERNEL_CODENAME);
     return String(v);
 }
 
@@ -169,6 +210,7 @@ static void loadConfig() {
     config.maxCurrent = prefs.getFloat("e_max_cur", 32.0f);
     config.mqttFailsafeEnabled = prefs.getBool("m_safe", false);
     config.mqttFailsafeTimeout = prefs.getULong("m_safe_t", 600);
+    config.rcmEnabled = prefs.getBool("e_rcm_en", true);
     prefs.end();
 }
 
@@ -184,6 +226,7 @@ static void saveConfig() {
     prefs.putULong("e_res_delay", config.lowLimitResumeDelayMs); prefs.putFloat("e_max_cur", config.maxCurrent);
     prefs.putBool("m_safe", config.mqttFailsafeEnabled);
     prefs.putULong("m_safe_t", config.mqttFailsafeTimeout);
+    prefs.putBool("e_rcm_en", config.rcmEnabled);
     prefs.end();
 }
 
@@ -210,6 +253,7 @@ static void handleStatus() {
 
 /* --- WEB HANDLERS --- */
 static void handleRoot() {
+
     if (apMode) {
         String host = webServer.hostHeader();
         if (host != WiFi.softAPIP().toString()) {
@@ -218,6 +262,7 @@ static void handleRoot() {
             return;
         }
         String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width'>" + String(dashStyle) + "</head><body><div class='container'>";
+
         h.reserve(1024); // Prevent heap fragmentation
         h += "<h1>EVSE SETUP</h1><form method='POST' action='/saveConfig'>";
         h += "<label>SSID</label><input name='ssid' id='ssid' value='"+config.wifiSsid+"'>";
@@ -229,16 +274,24 @@ static void handleRoot() {
         h += "<button class='btn' type='submit' style='margin-top:20px;'>SAVE & CONNECT</button></form></div>";
         h += String(dynamicScript) + "</body></html>";
         webServer.send(200, "text/html", h);
+
         return;
     }
 
     String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
     h.reserve(1500); // Prevent heap fragmentation
     h += "<h1>" + deviceId + "</h1><span class='version-tag'>CONTROLLER ONLINE</span>";
+    
+    // RED ALERT BANNER FOR RCM FAULT
+    if (evse.isRcmEnabled() && evse.isRcmTripped()) {
+        h += "<div style='background:#d32f2f; color:#fff; padding:15px; border-radius:6px; margin-bottom:15px; font-weight:bold; border:2px solid #ff5252; animation: blink 1s infinite;'>⚠️ CRITICAL: RCM FAULT DETECTED ⚠️<br><small>Residual Current Monitor Tripped. Disconnect Vehicle to Reset.</small></div><style>@keyframes blink{50%{opacity:0.8}}</style>";
+    }
+
     float amps = evse.getCurrentLimit();
     String pwmStr = (evse.getState() == STATE_CHARGING) ? (String(evse.getPilotDuty(), 1) + "%") : "DISABLED";
     h += "<div class='stat' style='font-size: 1.0em;'>STATUS: <span id='vst'>" + getVehicleStateText() + "</span><br>PWM/CURRENT: <span id='pwm'>" + pwmStr + "</span> (<span id='clim'>" + String(amps, 1) + "</span> A)<br>PILOT VOLTAGE: <span id='pvolt'>" + String(pilot.getVoltage(), 2) + "</span> V<br>AC RELAY: <span id='acrel'>" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "</span></div>";
-    h += "<div style='display:flex; gap:10px;'><a class='btn' href='/cmd?do=start'>START</a><a class='btn' style='background:#ff9800; color:#fff' href='/cmd?do=stop'>PAUSE</a><a class='btn btn-red' href='/cmd?do=disable'>STOP</a></div>";
+    h += "<div style='display:flex; gap:10px;'><button class='btn' onclick=\"c('start',this)\">START</button><button class='btn' style='background:#ff9800; color:#fff' onclick=\"c('stop',this)\">PAUSE</button><button class='btn btn-red' onclick=\"c('disable',this)\">STOP</button></div>";
+    h += "<script>function c(a,b){var o=b.innerText;b.innerText='...';fetch('/cmd?do='+a+'&ajax=1').then(r=>{setTimeout(()=>{b.innerText=o},500)})}</script>";
 
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag' style='font-size: 1.0em;'>";
@@ -268,10 +321,15 @@ static void handleSettingsMenu() {
     h += "<b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "</div>";
 
     h += "<a href='/config/evse' class='btn'>EVSE PARAMETERS</a><a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
+    h += "<a href='/config/rcm' class='btn'>SYSTEM RCD</a>";
     h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a><a href='/config/auth' class='btn'>ADMIN SECURITY</a>";
     h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a>";
     h += "<a href='/reboot' class='btn btn-red' onclick=\"return confirm('Reboot System?')\">REBOOT DEVICE</a>";
+    h += "<button class='btn btn-red' style='margin-top:20px' onclick=\"document.getElementById('dz').style.display='block';this.style.display='none'\">⚠️ DANGER ZONE</button>";
+    h += "<div id='dz' style='display:none; border:1px solid #cc3300; padding:10px; border-radius:6px; margin-top:10px; background:#2a0a0a'>";
     h += "<form method='POST' action='/factReset' onsubmit=\"return confirm('ERASE ALL?')\"><button class='btn btn-red'>FACTORY RESET</button></form>";
+    h += "<div style='display:flex; gap:10px; margin-top:5px;'><form method='POST' action='/wifiReset' style='width:50%' onsubmit=\"return confirm('Reset WiFi Settings?')\"><button class='btn' style='background:#ff9800; color:#fff'>RESET WIFI</button></form>";
+    h += "<form method='POST' action='/evseReset' style='width:50%' onsubmit=\"return confirm('Reset EVSE Params?')\"><button class='btn' style='background:#ff9800; color:#fff'>RESET PARAMS</button></form></div></div>";
     h += "<a href='/' class='btn' style='background:#444; color:#fff;'>CLOSE</a>";
     h += "</div></body></html>";
     webServer.send(200, "text/html", h);
@@ -284,7 +342,10 @@ static void handleCmd() {
     if (op == "start") evse.startCharging();
     else if (op == "stop") evse.stopCharging();
     else if (op == "disable") { evse.stopCharging(); pilot.disable(); }
-    webServer.sendHeader("Location", "/", true); webServer.send(302, "text/plain", "");
+    if (webServer.hasArg("ajax")) 
+        webServer.send(200, "text/plain", "OK");
+    else 
+        { webServer.sendHeader("Location", "/", true); webServer.send(302, "text/plain", ""); }
 }
 
 static void handleSaveConfig() {
@@ -304,6 +365,9 @@ static void handleSaveConfig() {
         config.mqttFailsafeEnabled = (webServer.arg("mqsafe") == "1");
         config.mqttFailsafeTimeout = webServer.arg("mqsafet").toInt();
     }
+    if (webServer.hasArg("rcmen")) {
+        config.rcmEnabled = (webServer.arg("rcmen") == "1");
+    }
     if (webServer.hasArg("wuser")) { 
         config.wwwUser = webServer.arg("wuser"); 
         config.wwwPass = webServer.arg("wpass"); 
@@ -321,6 +385,7 @@ static void handleSaveConfig() {
     saveConfig();
     // Sync changes to MQTT controller so it can publish new state
     mqttController.setFailsafeConfig(config.mqttFailsafeEnabled, config.mqttFailsafeTimeout);
+    evse.setRcmEnabled(config.rcmEnabled);
 
     if (apMode) {
         webServer.send(200, "text/plain", "Rebooting...");
@@ -391,7 +456,16 @@ static void handleConfigEvse() {
     h += "<label>Resume delay (ms)<input name='lldelay' type='number' value='"+String(config.lowLimitResumeDelayMs)+"'></label>";
     h += "<button class='btn' type='submit'>SAVE</button></form>";
     h += "<a href='/test' class='btn' style='background:#673ab7; color:#fff; margin-top:15px;'>PWM TEST LAB</a>";
-    h += "<a class='btn btn-red' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
+    webServer.send(200, "text/html", h);
+}
+
+static void handleConfigRcm() {
+    if (!checkAuth()) return;
+    String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>RCD Config</h1><form method='POST' action='/saveConfig'>";
+    h += "<div class='stat' style='border-left-color:#ff5252'><b>Residual Current Monitor</b><br>Disabling this safety feature is NOT recommended.</div>";
+    h += "<label>RCM Protection<select name='rcmen'><option value='1' "+String(config.rcmEnabled?"selected":"")+">ENABLED (Safe)</option><option value='0' "+String(!config.rcmEnabled?"selected":"")+">DISABLED (Unsafe)</option></select></label>";
+    h += "<button class='btn' type='submit'>SAVE</button></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -402,7 +476,7 @@ static void handleConfigMqtt() {
     h += "<label>User<input name='mquser' value='"+config.mqttUser+"'></label><label>Pass<input name='mqpass' type='password' value='"+config.mqttPass+"'></label>";
     h += "<label>Safety Failsafe<select name='mqsafe'><option value='0' "+String(!config.mqttFailsafeEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttFailsafeEnabled?"selected":"")+">Stop Charge on Loss</option></select></label>";
     h += "<label>Failsafe Timeout (sec)<input name='mqsafet' type='number' value='"+String(config.mqttFailsafeTimeout)+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE</button></form><a class='btn btn-red' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<button class='btn' type='submit'>SAVE</button></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -438,7 +512,7 @@ static void handleConfigWifi() {
     h += "<label>Static IP<input name='ip' id='ip' value='"+dispIp+"'></label>";
     h += "<label>Gateway<input name='gw' id='gw' value='"+dispGw+"'></label>";
     h += "<label>Subnet<input name='sn' id='sn' value='"+dispSn+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE & RECONNECT</button></form><a class='btn btn-red' href='/settings'>CANCEL</a></div>";
+    h += "<button class='btn' type='submit'>SAVE & RECONNECT</button></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div>";
     h += String(dynamicScript);
     h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;};c.appendChild(e);});});}</script>";
     h += "</body></html>";
@@ -451,7 +525,7 @@ static void handleConfigAuth() {
     h += "<label>User<input name='wuser' value='"+config.wwwUser+"'></label><label>Pass<input name='wpass' type='password' value='"+config.wwwPass+"'></label>";
     h += "<button class='btn' type='submit'>SAVE CREDENTIALS</button></form><br>";
     h += "<a href='/factory_reset' class='btn btn-red' onclick=\"return confirm('Wipe ALL settings?')\">FACTORY RESET</a>";
-    h += "<a class='btn' style='background:#444;' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -463,7 +537,9 @@ static void handleFactoryReset() {
     evse.stopCharging();
     pilot.disable();
 
-    webServer.send(200, "text/plain", "Factory Reset: Stopping Charge, Wiping WiFi/Settings, Rebooting...");
+    String h = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width'><style>body{background:#121212;color:#ffcc00;font-family:sans-serif;text-align:center;padding:50px;} .btn{background:#ffcc00;color:#121212;padding:10px 20px;text-decoration:none;border-radius:5px;font-weight:bold;display:inline-block;margin-top:20px;}</style></head><body>";
+    h += "<h1>Factory Reset</h1><p>Stopping Charge, Wiping WiFi/Settings, Rebooting...</p><a href='/' class='btn'>RETURN HOME</a></body></html>";
+    webServer.send(200, "text/html", h);
     delay(1000); 
     
     // Wipe settings and WiFi credentials
@@ -471,6 +547,40 @@ static void handleFactoryReset() {
     WiFi.disconnect(true, true); // Turn off WiFi and erase SDK credentials
     delay(1000);
     ESP.restart();
+}
+
+static void handleWifiReset() {
+    if (!checkAuth()) return;
+    prefs.begin(PREFS_NAMESPACE, false);
+    prefs.remove("w_ssid");
+    prefs.remove("w_pass");
+    prefs.remove("w_static");
+    prefs.end();
+    String h = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width'><style>body{background:#121212;color:#ffcc00;font-family:sans-serif;text-align:center;padding:50px;} .btn{background:#ffcc00;color:#121212;padding:10px 20px;text-decoration:none;border-radius:5px;font-weight:bold;display:inline-block;margin-top:20px;}</style></head><body>";
+    h += "<h1>WiFi Reset</h1><p>Credentials cleared. Rebooting into AP Mode...</p><a href='/' class='btn'>RETURN HOME</a></body></html>";
+    webServer.send(200, "text/html", h);
+    delay(1000);
+    WiFi.disconnect(true, true);
+    ESP.restart();
+}
+
+static void handleEvseReset() {
+    if (!checkAuth()) return;
+    config.maxCurrent = 32.0f;
+    config.rcmEnabled = true;
+    config.allowBelow6AmpCharging = false;
+    config.lowLimitResumeDelayMs = 300000UL;
+    saveConfig();
+    
+    ChargingSettings cs;
+    cs.maxCurrent = config.maxCurrent;
+    cs.disableAtLowLimit = !config.allowBelow6AmpCharging;
+    cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
+    evse.setup(cs);
+    evse.setRcmEnabled(config.rcmEnabled);
+    
+    webServer.sendHeader("Location", "/settings", true);
+    webServer.send(302, "text/plain", "");
 }
 
 static void handleUpdate() {
@@ -527,12 +637,20 @@ void setup() {
     });
 
     Serial.begin(BAUD_RATE);
-    uint64_t mac = ESP.getEfuseMac(); 
-    deviceId = "EVSE-" + String((uint32_t)(mac >> 32), HEX);
+    uint64_t chipid = ESP.getEfuseMac();   // 48-bit MAC
+    char devName[32];
+
+    sprintf(devName, "EVSE-%02X%02X%02X",
+            (uint8_t)(chipid >> 16),
+            (uint8_t)(chipid >> 8),
+            (uint8_t) chipid);
+
+    deviceId = String(devName);
+    
     loadConfig();
 
     logger.info("================================================");
-    logger.infof("  EVSE - KERNEL %d.%d.%d", KERNEL_VERSION_MAJOR, KERNEL_VERSION_MINOR, KERNEL_VERSION_PATCH);
+    logger.infof("  EVSE - KERNEL %s", KERNEL_VERSION);
     logger.infof("  CODENAME : %s", KERNEL_CODENAME);
     logger.infof("  BUILD    : %s %s", __DATE__, __TIME__);
     logger.infof("  DEVICE ID: %s", deviceId.c_str());
@@ -543,12 +661,23 @@ void setup() {
     cs.disableAtLowLimit = !config.allowBelow6AmpCharging; // Invert logic for internal struct
     cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
     evse.setup(cs);
+    evse.setRcmEnabled(config.rcmEnabled);
+
+    // RCM Initialization & Self-Test
+    rcm.begin();
+    if (config.rcmEnabled) {
+        rcm.selfTest();
+    }
 
     // Link MQTT Failsafe commands to AppConfig
     mqttController.setFailsafeConfig(config.mqttFailsafeEnabled, config.mqttFailsafeTimeout);
     mqttController.onFailsafeCommand([](bool enabled, unsigned long timeout){
         config.mqttFailsafeEnabled = enabled;
         config.mqttFailsafeTimeout = timeout;
+        saveConfig(); // Persist to NVS
+    });
+    mqttController.onRcmConfigChanged([](bool enabled){
+        config.rcmEnabled = enabled;
         saveConfig(); // Persist to NVS
     });
 
@@ -577,6 +706,7 @@ void setup() {
             webServer.on("/settings", HTTP_GET, handleSettingsMenu);
             webServer.on("/config/evse", HTTP_GET, handleConfigEvse);
             webServer.on("/test", HTTP_GET, handleTestMode);
+            webServer.on("/config/rcm", HTTP_GET, handleConfigRcm);
             webServer.on("/testCmd", HTTP_GET, handleTestCmd);
             webServer.on("/config/mqtt", HTTP_GET, handleConfigMqtt);
             webServer.on("/config/wifi", HTTP_GET, handleConfigWifi);
@@ -586,11 +716,20 @@ void setup() {
             webServer.on("/cmd", HTTP_GET, handleCmd);
             webServer.on("/factory_reset", HTTP_GET, handleFactoryReset);
             webServer.on("/factReset", HTTP_POST, handleFactoryReset);
+            webServer.on("/wifiReset", HTTP_POST, handleWifiReset);
+            webServer.on("/evseReset", HTTP_POST, handleEvseReset);
             webServer.on("/reboot", HTTP_ANY, [](){ if(checkAuth()){ webServer.send(200, "text/plain", "Rebooting..."); delay(1000); ESP.restart(); }});
             webServer.on("/update", HTTP_GET, handleUpdate);
             webServer.on("/doUpdate", HTTP_POST, [](){
-                webServer.send(200, "text/plain", (Update.hasError()) ? "Update Failed" : "Success! Rebooting...");
-                delay(1000); ESP.restart();
+                String h = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='15;url=/'><meta name='viewport' content='width=device-width'><style>body{background:#121212;color:#ffcc00;font-family:sans-serif;text-align:center;padding:50px;} .btn{background:#ffcc00;color:#121212;padding:10px 20px;text-decoration:none;border-radius:5px;font-weight:bold;display:inline-block;margin-top:20px;}</style></head><body>";
+                if (Update.hasError()) {
+                    h += "<h1>Update Failed</h1><p>Please try again.</p><a href='/update' class='btn'>TRY AGAIN</a> <a href='/' class='btn'>HOME</a>";
+                } else {
+                    h += "<h1>Update Successful!</h1><p>Device is rebooting... You will be redirected shortly.</p><a href='/' class='btn'>RETURN HOME</a>";
+                }
+                h += "</body></html>";
+                webServer.send(200, "text/html", h);
+                if (!Update.hasError()) { delay(1000); ESP.restart(); }
             }, [](){
                 HTTPUpload& u = webServer.upload();
                 if(u.status == UPLOAD_FILE_START){ if(!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial); } 
@@ -601,6 +740,7 @@ void setup() {
         }
     }
     MDNS.begin(deviceId.c_str());
+
     ArduinoOTA.begin();
 
     // Create the Safety Task on Core 1 (App Core) with higher priority (2) than loop (1)

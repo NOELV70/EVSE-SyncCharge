@@ -42,7 +42,7 @@ constexpr int PIN_PILOT_IN = 36; // ADC1 channel 0
 /* =========================
  * Helper function: analog read max
  * ========================= */
-int analogReadMax(uint8_t pinNumber)
+int Pilot::analogReadMax()
 {
    int maxVal = 0;
    // Sample for exactly 2 PWM periods to capture peak reliably
@@ -50,19 +50,16 @@ int analogReadMax(uint8_t pinNumber)
    unsigned long duration = 0;
    
    while (duration < SAMPLE_DURATION_US) {
-       int val = analogRead(pinNumber);
+       int val = analogReadMilliVolts(PIN_PILOT_IN);
        if (val > maxVal) maxVal = val;
        duration = micros() - startTime;
    }
-   
    //logger.debugf("[PILOT] analogReadMax sampled for %lu us, result: %d", duration, maxVal);
    return maxVal;
 }
 // Constructor
 Pilot::Pilot() 
 {
-    voltage = 0.0f;
-    currentDutyPercent = 0.0f;
 }
 
 void Pilot::disable()
@@ -91,7 +88,8 @@ void Pilot::standby()
     }    
     // Set pin as HIGH output
     pinMode(PIN_PILOT_PWM_OUT, OUTPUT);
-    digitalWrite(PIN_PILOT_PWM_OUT, HIGH);}
+    digitalWrite(PIN_PILOT_PWM_OUT, HIGH);
+}
 
 void Pilot::currentLimit(float amps)
 {
@@ -126,27 +124,32 @@ void Pilot::currentLimit(float amps)
 }
 
 
-float Pilot::readPin()
+int Pilot::readPin()
 {
     // Loop mode: sample on-demand during 2 PWM periods
     // analogReadMilliVolts() handles ADC conversion automatically (ESP32 boards core)
     int pinValueMv = analogReadMilliVolts(PIN_PILOT_IN);
     // Store as float in millivolts (no division by 1000)
-    this->voltage = (((float)(pinValueMv) * PILOT_VOLTAGE_SCALE)/1000.0);
-    logger.debugf("[PILOT] Analog: pinValueMv=%d Voltage=%f", pinValueMv, this->voltage);
-    return this->voltage;
+    return pinValueMv;
+}
+
+float Pilot::convertMv(int pinValueMv)
+{
+    float voltage = (((float)(pinValueMv) * PILOT_VOLTAGE_SCALE)/1000.0);
+    logger.debugf("[PILOT] Analog: pinValueMv=%d Voltage=%f", pinValueMv, voltage);
+    return voltage;
 }
 
 float Pilot::getVoltage()
 {
-    logger.debugf("[PILOT] getVoltage -> %.3f V", this->voltage);
-    return this->voltage;
+    float voltage =  convertMv(readPin());
+    logger.debugf("[PILOT] getVoltage -> %.3f V", voltage);
+    return voltage;
 }
 
 VEHICLE_STATE_T Pilot::read()
 {
-    int voltageMv = (int)this->readPin();  // Now in millivolts
-
+    int voltageMv = (int)analogReadMax();  // Now in millivolts
     VEHICLE_STATE_T state;
     if (voltageMv >= VOLTAGE_STATE_NOT_CONNECTED)       state = VEHICLE_NOT_CONNECTED;
     else if (voltageMv >= VOLTAGE_STATE_CONNECTED)      state = VEHICLE_CONNECTED;
@@ -184,4 +187,3 @@ void vehicleStateToText(VEHICLE_STATE_T vehicleState, char* buffer)
         default:                                 strcpy(buffer, "Unknown"); break;
     }
 }
-

@@ -13,9 +13,12 @@
  ******************************************************************************/
 
 #include "EvseCharge.h"
+#include "Rcm.h"
 #include "EvseLogger.h"
 #include <Arduino.h>
 #include <esp_task_wdt.h>
+
+extern Rcm rcm;
 
 EvseCharge::EvseCharge(Pilot &pilotRef) {
     pilot = &pilotRef;
@@ -43,11 +46,39 @@ void EvseCharge::setup(ChargingSettings settings_) {
     // Only cleared after confirming vehicle is safely disconnected
     errorLockout = true;
     logger.info("[EVSE] Error lockout initialized (fail-safe)");
+    lastRcmTestTime = millis(); // Initialize timer (power-on test is handled in main setup)
 
     logger.info("[EVSE] Setup done");
 }
 
 void EvseCharge::loop() {
+    // Safety: Check Residual Current Monitor
+    if (rcmEnabled && rcm.isTriggered()) {
+        logger.error("[EVSE] CRITICAL: RCM Fault Detected! Emergency Stop.");
+        relay->openImmediately();
+        stopCharging();
+        rcmTripped = true;
+        if (!errorLockout) {
+            errorLockout = true;
+            logger.warn("[EVSE] Error lockout activated due to RCM Fault");
+        }
+    }
+
+    // Periodic RCM Self-Test (IEC 62955 / IEC 61851 recommendation: every 24h)
+    // Only run if not charging to avoid interruption.
+    if (rcmEnabled && state != STATE_CHARGING && (millis() - lastRcmTestTime > RCM_TEST_INTERVAL)) {
+        logger.info("[EVSE] Performing periodic 24h RCM self-test...");
+        if (rcm.selfTest()) {
+            lastRcmTestTime = millis();
+            logger.info("[EVSE] Periodic RCM test PASSED");
+        } else {
+            logger.error("[EVSE] Periodic RCM test FAILED! Entering Lockout.");
+            rcmTripped = true;
+            errorLockout = true;
+            relay->openImmediately();
+        }
+    }
+
     relay->loop();
     updateVehicleState();
     managePwmAndRelay();           // SAE J1772 state machine
@@ -98,6 +129,23 @@ void EvseCharge::startCharging() {
         logger.warnf("[EVSE] Start ignored: Vehicle not ready (%s)", stateBuf);
         return;
     }
+
+    // SAFETY: Pre-charge RCM Self-Test (IEC 61851 / IEC 62955)
+    // Must verify RCM is functional before closing contactor.
+    if (rcmEnabled) {
+        logger.info("[EVSE] Pre-charge RCM self-test initiating...");
+        if (!rcm.selfTest()) {
+            logger.error("[EVSE] Pre-charge RCM test FAILED. Aborting charge.");
+            rcmTripped = true;
+            errorLockout = true;
+            relay->openImmediately();
+            return;
+        }
+        logger.info("[EVSE] Pre-charge RCM test PASSED.");
+        // Update periodic timer so we don't re-test unnecessarily soon
+        lastRcmTestTime = millis();
+    }
+
     logger.info("[EVSE] Start charging now");
 
     state = STATE_CHARGING;
@@ -325,6 +373,7 @@ void EvseCharge::managePwmAndRelay() {
         // This is the only safe path to recover from error/no-power states
         else if (vehicleState == VEHICLE_NOT_CONNECTED && errorLockout) {
             errorLockout = false;
+            rcmTripped = false; // Reset RCM trip flag when vehicle is unplugged
             logger.warn("[EVSE] Error lockout CLEARED: Vehicle fully disconnected (safe to accept new start commands)");
         }
     }
@@ -402,4 +451,17 @@ void EvseCharge::managePwmAndRelay() {
 unsigned long EvseCharge::getLowLimitResumeDelay() const {
 //    logger.debugf("[EVSE] getLowLimitResumeDelay -> %lu ms", settings.lowLimitResumeDelayMs);
     return settings.lowLimitResumeDelayMs;
+}
+
+void EvseCharge::setRcmEnabled(bool enable) {
+    rcmEnabled = enable;
+    logger.infof("[EVSE] RCM Safety Check %s", enable ? "ENABLED" : "DISABLED");
+}
+
+bool EvseCharge::isRcmEnabled() const {
+    return rcmEnabled;
+}
+
+bool EvseCharge::isRcmTripped() const {
+    return rcmTripped;
 }

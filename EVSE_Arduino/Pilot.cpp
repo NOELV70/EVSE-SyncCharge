@@ -91,18 +91,27 @@ void Pilot::standby()
     digitalWrite(PIN_PILOT_PWM_OUT, HIGH);
 }
 
+float Pilot::ampsToDuty(float amps)
+{
+    float dutyPercent;
+    if (amps <= J1772_AMPS_LOW_MAX)
+        dutyPercent = amps / J1772_FACTOR_LOW;
+    else
+        dutyPercent = (amps / J1772_FACTOR_HIGH) + J1772_OFFSET_HIGH;
+
+    return constrain(dutyPercent, 0.0f, 100.0f);
+}
+
+float Pilot::dutyToAmps(float duty)
+{
+    if (duty <= J1772_DUTY_LOW_MAX) return duty * J1772_FACTOR_LOW;
+    else return (duty - J1772_OFFSET_HIGH) * J1772_FACTOR_HIGH;
+}
+
 void Pilot::currentLimit(float amps)
 {
     amps = constrain(amps, MIN_CURRENT, MAX_CURRENT);
-
-    float dutyPercent;
-
-    if (amps <= 51.0f)
-        dutyPercent = amps / 0.6f;
-    else
-        dutyPercent = (amps / 2.5f) + 64.0f;
-
-    dutyPercent = constrain(dutyPercent, 0.0f, 100.0f);
+    float dutyPercent = ampsToDuty(amps);
 
     currentDutyPercent = dutyPercent; // <-- store duty percent
 
@@ -133,24 +142,22 @@ int Pilot::readPin()
     return pinValueMv;
 }
 
-float Pilot::convertMv(int pinValueMv)
+float Pilot::convertMv()
 {
-    float voltage = (((float)(pinValueMv) * PILOT_VOLTAGE_SCALE)/1000.0);
-    logger.debugf("[PILOT] Analog: pinValueMv=%d Voltage=%f", pinValueMv, voltage);
+    float voltage = (((float)(voltageMv) * PILOT_VOLTAGE_SCALE)/1000.0);
+    logger.debugf("[PILOT] Analog: pinValueMv=%d Voltage=%f", voltageMv, voltage);
     return voltage;
 }
 
 float Pilot::getVoltage()
 {
-    float voltage =  convertMv(readPin());
-    logger.debugf("[PILOT] getVoltage -> %.3f V", voltage);
-    return voltage;
+    return convertMv();
 }
 
 VEHICLE_STATE_T Pilot::read()
 {
-    int voltageMv = (int)analogReadMax();  // Now in millivolts
     VEHICLE_STATE_T state;
+    voltageMv = (int)analogReadMax();  // Now in millivolts
     if (voltageMv >= VOLTAGE_STATE_NOT_CONNECTED)       state = VEHICLE_NOT_CONNECTED;
     else if (voltageMv >= VOLTAGE_STATE_CONNECTED)      state = VEHICLE_CONNECTED;
     else if (voltageMv >= VOLTAGE_STATE_READY)          state = VEHICLE_READY;

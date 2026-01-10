@@ -1,5 +1,4 @@
-/*
- * =========================================================================================
+/* =========================================================================================
  * Project:     Evse_Simplified (EVSE-Arduino)
  * Description: A mission-critical, WiFi-enabled Electric Vehicle Supply Equipment (EVSE)
  *              controller built on the dual-core ESP32 platform.
@@ -261,19 +260,22 @@ static void handleRoot() {
             webServer.send(302, "text/plain", "");
             return;
         }
-        String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width'>" + String(dashStyle) + "</head><body><div class='container'>";
+        String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width'><title>EVSE Setup</title>" + String(dashStyle) + "</head><body><div class='container'>";
 
         h.reserve(1024); // Prevent heap fragmentation
-        h += "<h1>EVSE NETWORK SETUP</h1><form method='POST' action='/saveConfig'>";
+        h += "<h1>EVSE NETWORK SETUP</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+        h += "<div class='diag-header'>WiFi Settings</div>";
         h += "<label>SSID</label><input name='ssid' id='ssid' value='"+config.wifiSsid+"'>";
         h += "<button type='button' class='btn' style='background:#ffcc00' onclick='scanWifi()'>SCAN WIFI</button>";
         h += "<div id='scan-res' style='text-align:left; margin-top:10px; max-height:150px; overflow-y:auto;'></div>";
         h += "<label>PASS</label><input name='pass' type='password' value='"+config.wifiPass+"'>";
+        h += "<div class='diag-header'>IP Configuration</div>";
         h += "<label>IP MODE</label><select name='mode' id='mode' onchange='toggleStaticFields()'><option value='0'>DHCP</option><option value='1' "+String(config.useStatic?"selected":"")+">STATIC IP</option></select>";
         h += "<label>IP</label><input name='ip' id='ip' value='"+config.staticIp+"'>";
         h += "<label>GW</label><input name='gw' id='gw' value='"+config.staticGw+"'>";
         h += "<label>SN</label><input name='sn' id='sn' value='"+config.staticSn+"'>";
-        h += "<button class='btn' type='submit' style='margin-top:20px;'>SAVE & CONNECT</button></form></div>";
+        h += "<button class='btn' type='submit' style='margin-top:20px;'>SAVE & REBOOT</button>";
+        h += "<div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form></div>";
         h += String(dynamicScript);
         h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #ffcc00';};c.appendChild(e);});});}</script>";
         h += "</body></html>";
@@ -282,7 +284,7 @@ static void handleRoot() {
         return;
     }
 
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>" + deviceId + " - EVSE</title>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
     h.reserve(1500); // Prevent heap fragmentation
     h += "<h1>" + deviceId + "</h1><span class='version-tag'>CONTROLLER ONLINE</span>";
     
@@ -293,9 +295,12 @@ static void handleRoot() {
 
     float amps = evse.getCurrentLimit();
     String pwmStr = (evse.getState() == STATE_CHARGING) ? (String(evse.getPilotDuty(), 1) + "%") : "DISABLED";
-    h += "<div class='stat' style='font-size: 1.0em;'>STATUS: <span id='vst'>" + getVehicleStateText() + "</span><br>PWM/CURRENT: <span id='pwm'>" + pwmStr + "</span> (<span id='clim'>" + String(amps, 1) + "</span> A)<br>PILOT VOLTAGE: <span id='pvolt'>" + String(pilot.getVoltage(), 2) + "</span> V<br>AC RELAY: <span id='acrel'>" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "</span></div>";
-    h += "<div style='display:flex; gap:10px;'><button class='btn' onclick=\"c('start',this)\">START</button><button class='btn' style='background:#ff9800; color:#fff' onclick=\"c('stop',this)\">PAUSE</button><button class='btn btn-red' onclick=\"c('disable',this)\">STOP</button></div>";
-    h += "<script>function c(a,b){var o=b.innerText;b.innerText='...';fetch('/cmd?do='+a+'&ajax=1').then(r=>{setTimeout(()=>{b.innerText=o},500)})}</script>";
+    h += "<div class='stat'><b>VEHICLE STATE:</b> <span id='vst'>" + getVehicleStateText() + "</span></div>";
+    h += "<div class='stat'><b>CURRENT LIMIT:</b> <span id='clim'>" + String(amps, 1) + "</span> A<br><b>PWM DUTY:</b> <span id='pwm'>" + pwmStr + "</span></div>";
+    h += "<div class='stat'><b>PILOT VOLTAGE:</b> <span id='pvolt'>" + String(pilot.getVoltage(), 2) + "</span> V</div>";
+    h += "<div class='stat'><b>AC RELAY:</b> <span id='acrel'>" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "</span></div>";
+    h += "<div style='display:flex; gap:10px; margin:20px 0;'><button class='btn' onclick=\"confirmCmd('start', this)\">RESUME CHARGING</button><button class='btn' style='background:#ff9800; color:#fff' onclick=\"confirmCmd('pause', this)\">PAUSE CHARGING</button><button class='btn btn-red' onclick=\"confirmCmd('stop', this)\">STOP CHARGING</button></div>";
+    h += "<script>function confirmCmd(action, btn) {let msg = {'start': 'Resume charging session?','pause': 'Pause charging (vehicle can resume later)?','stop': 'Fully stop charging and disable pilot signal?'}[action];if (confirm(msg)) {let orig = btn.innerText;btn.innerText = '...';fetch('/cmd?do=' + (action==='pause'?'stop':action==='stop'?'disable':action) + '&ajax=1').then(() => setTimeout(() => btn.innerText = orig, 500));}}</script>";
 
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag' style='font-size: 1.0em;'>";
@@ -312,7 +317,7 @@ static void handleRoot() {
 
 static void handleSettingsMenu() {
     if (!checkAuth()) return;
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'><h1>EVSE SETTINGS</h1>";
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>EVSE Settings</title>" + String(dashStyle) + "</head><body><div class='container'><h1>EVSE SETTINGS</h1>";
     h.reserve(1500); // Prevent heap fragmentation
     h += "<span class='version-tag'>" + getVersionString() + "</span>";
     
@@ -324,10 +329,13 @@ static void handleSettingsMenu() {
     h += "<b>WIFI SIGNAL:</b> " + String(WiFi.RSSI()) + " dBm<br>";
     h += "<b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "</div>";
 
-    h += "<a href='/config/evse' class='btn'>EVSE PARAMETERS</a><a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
-    h += "<a href='/config/rcm' class='btn'>SYSTEM RCD</a>";
-    h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a><a href='/config/auth' <button class='btn btn-red'>ADMIN SECURITY</a>";
-    h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a>";
+    h += "<div style='margin:20px 0;'>";
+    h += "<a href='/config/evse' class='btn'>EVSE PARAMETERS</a>";
+    h += "<a href='/config/rcm' class='btn'>RCD SETTINGS</a>";
+    h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a>";
+    h += "<a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
+    h += "<a href='/config/auth' class='btn btn-red'>ADMIN SECURITY</a>";
+    h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a></div>";
     h += "<a href='/' class='btn' style='background:#444; color:#fff;'>CLOSE</a>";
     h += "</div></body></html>";
     webServer.send(200, "text/html", h);
@@ -405,9 +413,7 @@ static void handleTestCmd() {
     } else if (act == "pwm") {
         float duty = webServer.arg("val").toFloat();
         // Convert Duty % to Amps (Inverse of J1772)
-        float amps = 0.0f;
-        if (duty <= 85.0f) amps = duty * 0.6f;
-        else amps = (duty - 64.0f) * 2.5f;
+        float amps = pilot.dutyToAmps(duty);
         
         // Clamp to configured max current for display consistency
         if (amps > config.maxCurrent) amps = config.maxCurrent;
@@ -423,14 +429,10 @@ static void handleTestMode() {
     if (!checkAuth()) return;
     
     // Calculate max duty cycle based on configured maxCurrent
-    int maxDuty = 96;
-    if (config.maxCurrent < 80.0f) {
-        if (config.maxCurrent <= 51.0f) maxDuty = (int)(config.maxCurrent / 0.6f);
-        else maxDuty = (int)((config.maxCurrent / 2.5f) + 64.0f);
-    }
+    int maxDuty = (int)pilot.ampsToDuty(config.maxCurrent);
     int initVal = (50 > maxDuty) ? maxDuty : 50;
 
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>" + String(dashStyle) + "</head><body><div class='container'>";
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>PWM Test Lab</title>" + String(dashStyle) + "</head><body><div class='container'>";
     h += "<h1>PWM TEST LAB</h1><span class='version-tag'>WARNING: FORCE PWM</span>";
     h += "<div class='stat' style='border-left-color:#673ab7'>PILOT VOLTAGE: <span id='pv'>--</span> V<br>CALC AMPS: <span id='ca'>--</span> A</div>";
     h += "<div style='margin:20px 0; padding:15px; background:#222; border-radius:8px;'>";
@@ -448,11 +450,11 @@ static void handleTestMode() {
 
 static void handleConfigEvse() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig'>";
+    String h = String("<!DOCTYPE html><html><head><title>EVSE Config</title>") + dashStyle + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<label>Max Current (A)<input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
     h += "<label>Allow Charging < 6A?<select name='allowlow'><option value='0' "+String(!config.allowBelow6AmpCharging?"selected":"")+">No (Strict J1772)</option><option value='1' "+String(config.allowBelow6AmpCharging?"selected":"")+">Yes (Solar/Throttle)</option></select></label>";
     h += "<label>Resume delay (ms)<input name='lldelay' type='number' value='"+String(config.lowLimitResumeDelayMs)+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE</button></form>";
+    h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form>";
     h += "<a href='/test' class='btn' style='background:#673ab7; color:#fff; margin-top:15px;'>PWM TEST LAB</a>";
     h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
@@ -460,21 +462,21 @@ static void handleConfigEvse() {
 
 static void handleConfigRcm() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>RCD Config</h1><form method='POST' action='/saveConfig'>";
+    String h = String("<!DOCTYPE html><html><head><title>RCD Config</title>") + dashStyle + "</head><body><div class='container'><h1>RCD Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<div class='stat' style='border-left-color:#ff5252'><b>Residual Current Monitor</b><br>Disabling this safety feature is NOT recommended.</div>";
     h += "<label>RCM Protection<select name='rcmen'><option value='1' "+String(config.rcmEnabled?"selected":"")+">ENABLED (Safe)</option><option value='0' "+String(!config.rcmEnabled?"selected":"")+">DISABLED (Unsafe)</option></select></label>";
-    h += "<button class='btn' type='submit'>SAVE</button></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
 static void handleConfigMqtt() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>MQTT Config</h1><form method='POST' action='/saveConfig'>";
+    String h = String("<!DOCTYPE html><html><head><title>MQTT Config</title>") + dashStyle + "</head><body><div class='container'><h1>MQTT Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<label>Host<input name='mqhost' value='"+config.mqttHost+"'></label><label>Port<input name='mqport' type='number' value='"+String(config.mqttPort)+"'></label>";
     h += "<label>User<input name='mquser' value='"+config.mqttUser+"'></label><label>Pass<input name='mqpass' type='password' value='"+config.mqttPass+"'></label>";
     h += "<label>Safety Failsafe<select name='mqsafe'><option value='0' "+String(!config.mqttFailsafeEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttFailsafeEnabled?"selected":"")+">Stop Charge on Loss</option></select></label>";
     h += "<label>Failsafe Timeout (sec)<input name='mqsafet' type='number' value='"+String(config.mqttFailsafeTimeout)+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE</button></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -501,16 +503,18 @@ static void handleConfigWifi() {
         if (dispSn == "255.255.255.0" || dispSn == "") dispSn = WiFi.subnetMask().toString();
     }
 
-    String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>Network Config</h1><form method='POST' action='/saveConfig'>";
+    String h = String("<!DOCTYPE html><html><head><title>Network Config</title>") + dashStyle + "</head><body><div class='container'><h1>Network Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    h += "<div class='diag-header'>WiFi Settings</div>";
     h += "<label>SSID<input name='ssid' id='ssid' value='"+config.wifiSsid+"'></label>";
     h += "<button type='button' class='btn' style='background:#ffcc00' onclick='scanWifi()'>SCAN WIFI</button>";
     h += "<div id='scan-res' style='text-align:left; margin-top:10px; max-height:150px; overflow-y:auto;'></div>";
     h += "<label>Password<input name='pass' type='password' value='"+config.wifiPass+"'></label>";
+    h += "<div class='diag-header'>IP Configuration</div>";
     h += "<label>IP Assignment<select name='mode' id='mode' onchange='toggleStaticFields()'><option value='0' "+String(!config.useStatic?"selected":"")+">DHCP</option><option value='1' "+String(config.useStatic?"selected":"")+">STATIC IP</option></select></label>";
     h += "<label>Static IP<input name='ip' id='ip' value='"+dispIp+"'></label>";
     h += "<label>Gateway<input name='gw' id='gw' value='"+dispGw+"'></label>";
     h += "<label>Subnet<input name='sn' id='sn' value='"+dispSn+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE & RECONNECT</button></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div>";
+    h += "<button class='btn' type='submit'>SAVE & RECONNECT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div>";
     h += String(dynamicScript);
     h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #ffcc00';};c.appendChild(e);});});}</script>";
     h += "</body></html>";
@@ -519,9 +523,9 @@ static void handleConfigWifi() {
 
 static void handleConfigAuth() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig'>";
+    String h = String("<!DOCTYPE html><html><head><title>Security Config</title>") + dashStyle + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<label>User<input name='wuser' value='"+config.wwwUser+"'></label><label>Pass<input name='wpass' type='password' value='"+config.wwwPass+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE CREDENTIALS</button></form><br>";
+    h += "<button class='btn' type='submit'>SAVE CREDENTIALS</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><br>";
     h += "<a href='/reboot' class='btn btn-red' onclick=\"return confirm('Reboot System?')\">REBOOT DEVICE</a>";
     h += "<button class='btn btn-red' style='margin-top:20px' onclick=\"document.getElementById('dz').style.display='block';this.style.display='none'\">! DANGER ZONE !</button>";
     h += "<div id='dz' style='display:none; border:1px solid #cc3300; padding:10px; border-radius:6px; margin-top:10px; background:#2a0a0a'>";

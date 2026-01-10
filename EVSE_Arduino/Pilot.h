@@ -29,7 +29,14 @@
 constexpr float MIN_CURRENT = 6.0f;
 constexpr float MAX_CURRENT = 64.0f;
 
-constexpr float PILOT_VOLTAGE_SCALE = ((1200.0+3300.0)/1200.0); // Voltage divider scale factor
+constexpr float PILOT_VOLTAGE_SCALE = (((1200.0+3300.0)/1200.0)*1.1); // Voltage divider scale factor
+
+// J1772 PWM Conversion Constants
+constexpr float J1772_DUTY_LOW_MAX = 85.0f;      // Max duty cycle for low range formula
+constexpr float J1772_AMPS_LOW_MAX = 51.0f;      // Max amps for low range formula (85 * 0.6)
+constexpr float J1772_FACTOR_LOW   = 0.6f;       // Amps per % duty (10-85%)
+constexpr float J1772_FACTOR_HIGH  = 2.5f;       // Amps per % duty (85-96%)
+constexpr float J1772_OFFSET_HIGH  = 64.0f;      // Offset for high range formula
 
 // Voltage thresholds in millivolts (SAE J1772 state detection)
 constexpr int VOLTAGE_STATE_NOT_CONNECTED = 11000;    // >= 11V = Not connected
@@ -42,7 +49,8 @@ constexpr int VOLTAGE_STATE_NO_POWER = 0;              // >= 0V  = No power
 // Pilot class
 // =========================
 class Pilot {
-private:
+private:    
+    int voltageMv=0;
     float currentDutyPercent = 0.0f;
     bool pwmAttached = false;         // track if PWM is currently attached
     VEHICLE_STATE_T lastVehicleState = VEHICLE_STATE_COUNT;  // track last state for change detection
@@ -54,10 +62,13 @@ public:
     void currentLimit(float amps);
     int readPin();
     int analogReadMax();
-    float convertMv(int pinValueMv);
     float getVoltage();
     VEHICLE_STATE_T read();
     float getPwmDuty();
+    float ampsToDuty(float amps);
+    float dutyToAmps(float duty);
+private:
+    float convertMv();
 };
 
 // =========================

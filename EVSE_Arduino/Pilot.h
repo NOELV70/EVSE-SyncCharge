@@ -23,34 +23,39 @@
 // =========================
 
 // =========================
-// Constants
+// Constants - OFFICIAL SAE J1772 VALUES (2026)
 // =========================
+
+constexpr float PILOT_VOLTAGE_SCALE = ((1200.0+3300.0)/1200.0)*1.2; // Voltage divider scale factor
+
 // Current limits (SAE J1772)
-constexpr float MIN_CURRENT = 6.0f;
-constexpr float MAX_CURRENT = 64.0f;
+constexpr float MIN_CURRENT = 6.0f;                    // Absolute minimum allowed
+constexpr float MAX_CURRENT = 80.0f;                   // Official maximum continuous current
 
-constexpr float PILOT_VOLTAGE_SCALE = (((1200.0+3300.0)/1200.0)*1.1); // Voltage divider scale factor
+// J1772 PWM Conversion Constants (exact spec values)
+constexpr float J1772_MIN_DUTY          = 10.0f;       // 6 A minimum
+constexpr float J1772_MAX_DUTY          = 96.0f;       // 80 A maximum
 
-// J1772 PWM Conversion Constants
-constexpr float J1772_DUTY_LOW_MAX = 85.0f;      // Max duty cycle for low range formula
-constexpr float J1772_AMPS_LOW_MAX = 51.0f;      // Max amps for low range formula (85 * 0.6)
-constexpr float J1772_FACTOR_LOW   = 0.6f;       // Amps per % duty (10-85%)
-constexpr float J1772_FACTOR_HIGH  = 2.5f;       // Amps per % duty (85-96%)
-constexpr float J1772_OFFSET_HIGH  = 64.0f;      // Offset for high range formula
+constexpr float J1772_LOW_RANGE_MAX_AMPS   = 51.0f;    // Boundary between low & high formula
+constexpr float J1772_LOW_RANGE_MAX_DUTY   = 85.0f;    // 51 A = 85% × 0.6
+constexpr float J1772_LOW_RANGE_FACTOR     = 0.6f;     // Amps per % duty (10–85%)
+
+constexpr float J1772_HIGH_RANGE_FACTOR    = 2.5f;     // Amps per % duty (85–96%)
+constexpr float J1772_HIGH_RANGE_OFFSET    = 64.0f;    // Offset for high range formula
 
 // Voltage thresholds in millivolts (SAE J1772 state detection)
-constexpr int VOLTAGE_STATE_NOT_CONNECTED = 11000;    // >= 11V = Not connected
-constexpr int VOLTAGE_STATE_CONNECTED = 8000;          // >= 8V  = Connected, not ready
-constexpr int VOLTAGE_STATE_READY = 5000;              // >= 5V  = Ready
-constexpr int VOLTAGE_STATE_VENTILATION = 2000;        // >= 2V  = Ready, ventilation required
-constexpr int VOLTAGE_STATE_NO_POWER = 0;              // >= 0V  = No power
+constexpr int VOLTAGE_STATE_NOT_CONNECTED = 11000;     // >= 11V = Not connected (State A)
+constexpr int VOLTAGE_STATE_CONNECTED     =  8000;     // >= 8V  = Connected, not ready (State B)
+constexpr int VOLTAGE_STATE_READY         =  5000;     // >= 5V  = Ready (State C/D)
+constexpr int VOLTAGE_STATE_VENTILATION   =  2000;     // >= 2V  = Ready, ventilation required (State D)
+constexpr int VOLTAGE_STATE_NO_POWER      =     0;     // >= 0V  = No power / Fault
 
 // =========================
 // Pilot class
 // =========================
 class Pilot {
 private:    
-    int voltageMv=0;
+    int voltageMv = 0;
     float currentDutyPercent = 0.0f;
     bool pwmAttached = false;         // track if PWM is currently attached
     VEHICLE_STATE_T lastVehicleState = VEHICLE_STATE_COUNT;  // track last state for change detection
@@ -68,7 +73,7 @@ public:
     float ampsToDuty(float amps);
     float dutyToAmps(float duty);
 private:
-    float convertMv();
+    float convertMv(int adMv);
 };
 
 // =========================

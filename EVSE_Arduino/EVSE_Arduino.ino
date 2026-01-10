@@ -122,6 +122,8 @@ const char* dashStyle =
 "label { display:block; text-align:left; margin-top:10px; color:#ccc; }"
 "input,select { width:100%; padding:10px; border-radius:6px; border:1px solid #333; background:#151515; color:#eee; margin-top:6px; transition: 0.3s; }"
 "input:disabled { background: #0f0f0f; color: #444; border-color: #222; opacity: 0.5; cursor: not-allowed; }"
+".modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.88); backdrop-filter: blur(3px); }"
+".modal-content { background-color: #1e1e1e; margin: 15% auto; padding: 25px; border: 2px solid #ffcc00; width: 90%; max-width: 400px; border-radius: 12px; text-align: center; box-shadow: 0 0 30px rgba(0,0,0,0.8); }"
 "</style>";
 
 const char* dynamicScript = 
@@ -159,7 +161,7 @@ String getVersionString() {
 
 String getVehicleStateText() {
     char buffer[50];
-    vehicleStateToText((VEHICLE_STATE_T)evse.getState(), buffer);
+    vehicleStateToText(evse.getVehicleState(), buffer);
     return String(buffer);
 }
 
@@ -264,12 +266,12 @@ static void handleRoot() {
 
         h.reserve(1024); // Prevent heap fragmentation
         h += "<h1>EVSE NETWORK SETUP</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
-        h += "<div class='diag-header'>WiFi Settings</div>";
+        h += "<div style='background:#2a2a2a; color:#ffcc00; padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid #ffcc00; font-weight:bold;'>WiFi Settings</div>";
         h += "<label>SSID</label><input name='ssid' id='ssid' value='"+config.wifiSsid+"'>";
         h += "<button type='button' class='btn' style='background:#ffcc00' onclick='scanWifi()'>SCAN WIFI</button>";
         h += "<div id='scan-res' style='text-align:left; margin-top:10px; max-height:150px; overflow-y:auto;'></div>";
         h += "<label>PASS</label><input name='pass' type='password' value='"+config.wifiPass+"'>";
-        h += "<div class='diag-header'>IP Configuration</div>";
+        h += "<div style='background:#2a2a2a; color:#ffcc00; padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid #ffcc00; font-weight:bold;'>IP Configuration</div>";
         h += "<label>IP MODE</label><select name='mode' id='mode' onchange='toggleStaticFields()'><option value='0'>DHCP</option><option value='1' "+String(config.useStatic?"selected":"")+">STATIC IP</option></select>";
         h += "<label>IP</label><input name='ip' id='ip' value='"+config.staticIp+"'>";
         h += "<label>GW</label><input name='gw' id='gw' value='"+config.staticGw+"'>";
@@ -277,7 +279,7 @@ static void handleRoot() {
         h += "<button class='btn' type='submit' style='margin-top:20px;'>SAVE & REBOOT</button>";
         h += "<div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form></div>";
         h += String(dynamicScript);
-        h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #ffcc00';};c.appendChild(e);});});}</script>";
+        h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #004d40';};c.appendChild(e);});});}</script>";
         h += "</body></html>";
         webServer.send(200, "text/html", h);
 
@@ -299,8 +301,9 @@ static void handleRoot() {
     h += "<div class='stat'><b>CURRENT LIMIT:</b> <span id='clim'>" + String(amps, 1) + "</span> A<br><b>PWM DUTY:</b> <span id='pwm'>" + pwmStr + "</span></div>";
     h += "<div class='stat'><b>PILOT VOLTAGE:</b> <span id='pvolt'>" + String(pilot.getVoltage(), 2) + "</span> V</div>";
     h += "<div class='stat'><b>AC RELAY:</b> <span id='acrel'>" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "</span></div>";
-    h += "<div style='display:flex; gap:10px; margin:20px 0;'><button class='btn' onclick=\"confirmCmd('start', this)\">RESUME CHARGING</button><button class='btn' style='background:#ff9800; color:#fff' onclick=\"confirmCmd('pause', this)\">PAUSE CHARGING</button><button class='btn btn-red' onclick=\"confirmCmd('stop', this)\">STOP CHARGING</button></div>";
-    h += "<script>function confirmCmd(action, btn) {let msg = {'start': 'Resume charging session?','pause': 'Pause charging (vehicle can resume later)?','stop': 'Fully stop charging and disable pilot signal?'}[action];if (confirm(msg)) {let orig = btn.innerText;btn.innerText = '...';fetch('/cmd?do=' + (action==='pause'?'stop':action==='stop'?'disable':action) + '&ajax=1').then(() => setTimeout(() => btn.innerText = orig, 500));}}</script>";
+    h += "<div style='display:flex; gap:10px; margin:20px 0;'><button class='btn' onclick=\"confirmCmd('start', this)\">START CHARGING</button><button class='btn' style='background:#ff9800; color:#fff' onclick=\"confirmCmd('pause', this)\">PAUSE CHARGING</button><button class='btn btn-red' onclick=\"quickCmd('stop', this)\">STOP CHARGING</button></div>";
+    h += "<div id='cm' class='modal'><div class='modal-content'><h2>CONFIRM ACTION</h2><p id='cmsg' style='font-size:1.1em; margin:20px 0; color:#ccc'></p><div style='display:flex; gap:10px'><button id='cyes' class='btn'>YES</button><button onclick=\"document.getElementById('cm').style.display='none'\" class='btn' style='background:#444; color:#fff'>NO</button></div></div></div>";
+    h += "<script>function quickCmd(a,b){let o=b.innerText;b.innerText='...';fetch('/cmd?do='+a+'&ajax=1').finally(()=>setTimeout(()=>b.innerText=o,500));} function confirmCmd(a, b) {let m = {'start': 'Resume charging session?','pause': 'Pause charging (vehicle can resume later)?','stop': 'Fully stop charging and disable pilot signal?'}[a]; document.getElementById('cmsg').innerText = m; document.getElementById('cm').style.display = 'block'; document.getElementById('cyes').onclick = function() { document.getElementById('cm').style.display = 'none'; quickCmd(a,b); }; }</script>";
 
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag' style='font-size: 1.0em;'>";
@@ -346,8 +349,8 @@ static void handleCmd() {
     String op = webServer.arg("do");
     logger.infof("[WEB] Command received: %s", op.c_str());
     if (op == "start") evse.startCharging();
-    else if (op == "stop") evse.stopCharging();
-    else if (op == "disable") { evse.stopCharging(); pilot.disable(); }
+    else if (op == "pause") evse.stopCharging();
+    else if (op == "stop") { evse.stopCharging(); pilot.disable(); }
     if (webServer.hasArg("ajax")) 
         webServer.send(200, "text/plain", "OK");
     else 
@@ -504,19 +507,19 @@ static void handleConfigWifi() {
     }
 
     String h = String("<!DOCTYPE html><html><head><title>Network Config</title>") + dashStyle + "</head><body><div class='container'><h1>Network Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
-    h += "<div class='diag-header'>WiFi Settings</div>";
+    h += "<div style='background:#2a2a2a; color:#ffcc00; padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid #ffcc00; font-weight:bold;'>WiFi Settings</div>";
     h += "<label>SSID<input name='ssid' id='ssid' value='"+config.wifiSsid+"'></label>";
     h += "<button type='button' class='btn' style='background:#ffcc00' onclick='scanWifi()'>SCAN WIFI</button>";
     h += "<div id='scan-res' style='text-align:left; margin-top:10px; max-height:150px; overflow-y:auto;'></div>";
     h += "<label>Password<input name='pass' type='password' value='"+config.wifiPass+"'></label>";
-    h += "<div class='diag-header'>IP Configuration</div>";
+    h += "<div style='background:#2a2a2a; color:#ffcc00; padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid #ffcc00; font-weight:bold;'>IP Configuration</div>";
     h += "<label>IP Assignment<select name='mode' id='mode' onchange='toggleStaticFields()'><option value='0' "+String(!config.useStatic?"selected":"")+">DHCP</option><option value='1' "+String(config.useStatic?"selected":"")+">STATIC IP</option></select></label>";
     h += "<label>Static IP<input name='ip' id='ip' value='"+dispIp+"'></label>";
     h += "<label>Gateway<input name='gw' id='gw' value='"+dispGw+"'></label>";
     h += "<label>Subnet<input name='sn' id='sn' value='"+dispSn+"'></label>";
     h += "<button class='btn' type='submit'>SAVE & RECONNECT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div>";
     h += String(dynamicScript);
-    h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #ffcc00';};c.appendChild(e);});});}</script>";
+    h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #004d40';};c.appendChild(e);});});}</script>";
     h += "</body></html>";
     webServer.send(200, "text/html", h);
 }
@@ -526,13 +529,16 @@ static void handleConfigAuth() {
     String h = String("<!DOCTYPE html><html><head><title>Security Config</title>") + dashStyle + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<label>User<input name='wuser' value='"+config.wwwUser+"'></label><label>Pass<input name='wpass' type='password' value='"+config.wwwPass+"'></label>";
     h += "<button class='btn' type='submit'>SAVE CREDENTIALS</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><br>";
-    h += "<a href='/reboot' class='btn btn-red' onclick=\"return confirm('Reboot System?')\">REBOOT DEVICE</a>";
+    h += "<button class='btn btn-red' onclick=\"cfm('Reboot System?', function(){window.location='/reboot'})\">REBOOT DEVICE</button>";
     h += "<button class='btn btn-red' style='margin-top:20px' onclick=\"document.getElementById('dz').style.display='block';this.style.display='none'\">! DANGER ZONE !</button>";
     h += "<div id='dz' style='display:none; border:1px solid #cc3300; padding:10px; border-radius:6px; margin-top:10px; background:#2a0a0a'>";
-    h += "<form method='POST' action='/factReset' onsubmit=\"return confirm('ERASE ALL?')\"><button class='btn btn-red'>FACTORY RESET</button></form>";
-    h += "<div style='display:flex; gap:10px; margin-top:5px;'><form method='POST' action='/wifiReset' style='width:50%' onsubmit=\"return confirm('Reset WiFi Settings?')\"><button class='btn' style='background:#ff9800; color:#fff'>RESET WIFI</button></form>";
-    h += "<form method='POST' action='/evseReset' style='width:50%' onsubmit=\"return confirm('Reset EVSE Params?')\"><button class='btn' style='background:#ff9800; color:#fff'>RESET PARAMS</button></form></div></div>";
-    h += "<a class='btn' style='background:#444; color:#fff; margin-top:20px;' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<form id='f1' method='POST' action='/factReset'><button type='button' class='btn btn-red' onclick=\"cfm('ERASE ALL DATA?', function(){document.getElementById('f1').submit()})\">FACTORY RESET</button></form>";
+    h += "<div style='display:flex; gap:10px; margin-top:5px;'><form id='f2' method='POST' action='/wifiReset' style='width:50%'><button type='button' class='btn' style='background:#ff9800; color:#fff' onclick=\"cfm('Reset WiFi Settings?', function(){document.getElementById('f2').submit()})\">RESET WIFI</button></form>";
+    h += "<form id='f3' method='POST' action='/evseReset' style='width:50%'><button type='button' class='btn' style='background:#ff9800; color:#fff' onclick=\"cfm('Reset EVSE Params?', function(){document.getElementById('f3').submit()})\">RESET PARAMS</button></form></div></div>";
+    h += "<a class='btn' style='background:#444; color:#fff; margin-top:20px;' href='/settings'>CANCEL</a>";
+    h += "<div id='cm' class='modal'><div class='modal-content'><h2>CONFIRM ACTION</h2><p id='cmsg' style='font-size:1.1em; margin:20px 0; color:#ccc'></p><div style='display:flex; gap:10px'><button id='cyes' class='btn'>YES</button><button onclick=\"document.getElementById('cm').style.display='none'\" class='btn' style='background:#444; color:#fff'>NO</button></div></div></div>";
+    h += "<script>var pa=null;function cfm(m,a){document.getElementById('cmsg').innerText=m;document.getElementById('cm').style.display='block';pa=a;}document.getElementById('cyes').onclick=function(){document.getElementById('cm').style.display='none';if(pa)pa();};</script>";
+    h += "</div></body></html>";
     webServer.send(200, "text/html", h);
 }
 

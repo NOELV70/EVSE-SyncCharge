@@ -418,7 +418,7 @@ void EvseCharge::managePwmAndRelay() {
             
         case VEHICLE_READY_VENTILATION_REQUIRED:
             // State D: Vehicle ready with ventilation requirement
-            logger.info("[EVSE] Vehicle ventilation mode detected");
+            //logger.info("[EVSE] Vehicle ventilation mode detected");
             if (state == STATE_CHARGING) {
                 // Apply current limit and close relay
                 pilot->currentLimit(currentLimit);

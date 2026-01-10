@@ -57,6 +57,7 @@ int Pilot::analogReadMax()
    //logger.debugf("[PILOT] analogReadMax sampled for %lu us, result: %d", duration, maxVal);
    return maxVal;
 }
+
 // Constructor
 Pilot::Pilot() 
 {
@@ -64,8 +65,10 @@ Pilot::Pilot()
 
 void Pilot::disable()
 {
+    logger.debug("[PILOT] Setting pilot disable"); 
     standby();
 }
+
 void Pilot::begin()
 {
     // Explicit ADC configuration (ESP32)
@@ -79,9 +82,9 @@ void Pilot::begin()
 
 void Pilot::standby()
 {
-    logger.debug("[PILOT] Setting pilot HIGH (standby)");
     if(pwmAttached)
     {
+        logger.debug("[PILOT] Setting pilot HIGH (standby)"); /* only print if we change to standby mode !*/
         pwmAttached=false;
         // Stop PWM on this pin (toolchain provides ledcDetach)
         ledcDetach(PIN_PILOT_PWM_OUT);
@@ -94,18 +97,18 @@ void Pilot::standby()
 float Pilot::ampsToDuty(float amps)
 {
     float dutyPercent;
-    if (amps <= J1772_AMPS_LOW_MAX)
-        dutyPercent = amps / J1772_FACTOR_LOW;
+    if (amps <= J1772_LOW_RANGE_MAX_AMPS)
+        dutyPercent = amps / J1772_LOW_RANGE_FACTOR;
     else
-        dutyPercent = (amps / J1772_FACTOR_HIGH) + J1772_OFFSET_HIGH;
+        dutyPercent = (amps / J1772_HIGH_RANGE_FACTOR) + J1772_HIGH_RANGE_OFFSET;
 
     return constrain(dutyPercent, 0.0f, 100.0f);
 }
 
 float Pilot::dutyToAmps(float duty)
 {
-    if (duty <= J1772_DUTY_LOW_MAX) return duty * J1772_FACTOR_LOW;
-    else return (duty - J1772_OFFSET_HIGH) * J1772_FACTOR_HIGH;
+    if (duty <= J1772_LOW_RANGE_MAX_DUTY) return duty * J1772_LOW_RANGE_FACTOR;
+    else return (duty - J1772_HIGH_RANGE_OFFSET) * J1772_HIGH_RANGE_FACTOR;
 }
 
 void Pilot::currentLimit(float amps)
@@ -132,7 +135,6 @@ void Pilot::currentLimit(float amps)
     ledcWrite(PIN_PILOT_PWM_OUT, dutyCounts);
 }
 
-
 int Pilot::readPin()
 {
     // Loop mode: sample on-demand during 2 PWM periods
@@ -142,22 +144,24 @@ int Pilot::readPin()
     return pinValueMv;
 }
 
-float Pilot::convertMv()
+float Pilot::convertMv(int adMv)
 {
-    float voltage = (((float)(voltageMv) * PILOT_VOLTAGE_SCALE)/1000.0);
-    logger.debugf("[PILOT] Analog: pinValueMv=%d Voltage=%f", voltageMv, voltage);
-    return voltage;
+    float voltageMv = (((float)(adMv) * PILOT_VOLTAGE_SCALE));
+    //logger.debugf("[PILOT] Analog: pinValueMv=%d(unscaled) Voltage=%f mV", adMv, voltageMv);
+    return voltageMv;
 }
 
 float Pilot::getVoltage()
 {
-    return convertMv();
+    return (voltageMv/1000.0);
 }
 
 VEHICLE_STATE_T Pilot::read()
 {
     VEHICLE_STATE_T state;
-    voltageMv = (int)analogReadMax();  // Now in millivolts
+    int mvUnscaled = analogReadMax();  // Now in millivolts UNSCALED 
+    voltageMv=(int) convertMv(mvUnscaled);    
+
     if (voltageMv >= VOLTAGE_STATE_NOT_CONNECTED)       state = VEHICLE_NOT_CONNECTED;
     else if (voltageMv >= VOLTAGE_STATE_CONNECTED)      state = VEHICLE_CONNECTED;
     else if (voltageMv >= VOLTAGE_STATE_READY)          state = VEHICLE_READY;
@@ -170,7 +174,7 @@ VEHICLE_STATE_T Pilot::read()
         lastVehicleState = state;
         char stateBuf[50];
         vehicleStateToText(state, stateBuf);
-        logger.debugf("[PILOT] Read: voltage=%d mV -> %s", voltageMv, stateBuf);
+        logger.debugf("[PILOT] Read: voltage=%d mV -> %.2f -> %s", voltageMv, getVoltage(), stateBuf);
     }
     
     return state;

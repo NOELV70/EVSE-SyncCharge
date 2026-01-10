@@ -264,15 +264,19 @@ static void handleRoot() {
         String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width'>" + String(dashStyle) + "</head><body><div class='container'>";
 
         h.reserve(1024); // Prevent heap fragmentation
-        h += "<h1>EVSE SETUP</h1><form method='POST' action='/saveConfig'>";
+        h += "<h1>EVSE NETWORK SETUP</h1><form method='POST' action='/saveConfig'>";
         h += "<label>SSID</label><input name='ssid' id='ssid' value='"+config.wifiSsid+"'>";
+        h += "<button type='button' class='btn' style='background:#ffcc00' onclick='scanWifi()'>SCAN WIFI</button>";
+        h += "<div id='scan-res' style='text-align:left; margin-top:10px; max-height:150px; overflow-y:auto;'></div>";
         h += "<label>PASS</label><input name='pass' type='password' value='"+config.wifiPass+"'>";
         h += "<label>IP MODE</label><select name='mode' id='mode' onchange='toggleStaticFields()'><option value='0'>DHCP</option><option value='1' "+String(config.useStatic?"selected":"")+">STATIC IP</option></select>";
         h += "<label>IP</label><input name='ip' id='ip' value='"+config.staticIp+"'>";
         h += "<label>GW</label><input name='gw' id='gw' value='"+config.staticGw+"'>";
         h += "<label>SN</label><input name='sn' id='sn' value='"+config.staticSn+"'>";
         h += "<button class='btn' type='submit' style='margin-top:20px;'>SAVE & CONNECT</button></form></div>";
-        h += String(dynamicScript) + "</body></html>";
+        h += String(dynamicScript);
+        h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #ffcc00';};c.appendChild(e);});});}</script>";
+        h += "</body></html>";
         webServer.send(200, "text/html", h);
 
         return;
@@ -322,14 +326,8 @@ static void handleSettingsMenu() {
 
     h += "<a href='/config/evse' class='btn'>EVSE PARAMETERS</a><a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
     h += "<a href='/config/rcm' class='btn'>SYSTEM RCD</a>";
-    h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a><a href='/config/auth' class='btn'>ADMIN SECURITY</a>";
+    h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a><a href='/config/auth' <button class='btn btn-red'>ADMIN SECURITY</a>";
     h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a>";
-    h += "<a href='/reboot' class='btn btn-red' onclick=\"return confirm('Reboot System?')\">REBOOT DEVICE</a>";
-    h += "<button class='btn btn-red' style='margin-top:20px' onclick=\"document.getElementById('dz').style.display='block';this.style.display='none'\">⚠️ DANGER ZONE</button>";
-    h += "<div id='dz' style='display:none; border:1px solid #cc3300; padding:10px; border-radius:6px; margin-top:10px; background:#2a0a0a'>";
-    h += "<form method='POST' action='/factReset' onsubmit=\"return confirm('ERASE ALL?')\"><button class='btn btn-red'>FACTORY RESET</button></form>";
-    h += "<div style='display:flex; gap:10px; margin-top:5px;'><form method='POST' action='/wifiReset' style='width:50%' onsubmit=\"return confirm('Reset WiFi Settings?')\"><button class='btn' style='background:#ff9800; color:#fff'>RESET WIFI</button></form>";
-    h += "<form method='POST' action='/evseReset' style='width:50%' onsubmit=\"return confirm('Reset EVSE Params?')\"><button class='btn' style='background:#ff9800; color:#fff'>RESET PARAMS</button></form></div></div>";
     h += "<a href='/' class='btn' style='background:#444; color:#fff;'>CLOSE</a>";
     h += "</div></body></html>";
     webServer.send(200, "text/html", h);
@@ -481,7 +479,7 @@ static void handleConfigMqtt() {
 }
 
 static void handleWifiScan() {
-    if (!checkAuth()) return;
+    if (!apMode && !checkAuth()) return;
     int n = WiFi.scanNetworks();
     String json = "[";
     for (int i = 0; i < n; ++i) {
@@ -514,7 +512,7 @@ static void handleConfigWifi() {
     h += "<label>Subnet<input name='sn' id='sn' value='"+dispSn+"'></label>";
     h += "<button class='btn' type='submit'>SAVE & RECONNECT</button></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div>";
     h += String(dynamicScript);
-    h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;};c.appendChild(e);});});}</script>";
+    h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #ffcc00';};c.appendChild(e);});});}</script>";
     h += "</body></html>";
     webServer.send(200, "text/html", h);
 }
@@ -524,8 +522,13 @@ static void handleConfigAuth() {
     String h = String("<!DOCTYPE html><html><head>") + dashStyle + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig'>";
     h += "<label>User<input name='wuser' value='"+config.wwwUser+"'></label><label>Pass<input name='wpass' type='password' value='"+config.wwwPass+"'></label>";
     h += "<button class='btn' type='submit'>SAVE CREDENTIALS</button></form><br>";
-    h += "<a href='/factory_reset' class='btn btn-red' onclick=\"return confirm('Wipe ALL settings?')\">FACTORY RESET</a>";
-    h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<a href='/reboot' class='btn btn-red' onclick=\"return confirm('Reboot System?')\">REBOOT DEVICE</a>";
+    h += "<button class='btn btn-red' style='margin-top:20px' onclick=\"document.getElementById('dz').style.display='block';this.style.display='none'\">! DANGER ZONE !</button>";
+    h += "<div id='dz' style='display:none; border:1px solid #cc3300; padding:10px; border-radius:6px; margin-top:10px; background:#2a0a0a'>";
+    h += "<form method='POST' action='/factReset' onsubmit=\"return confirm('ERASE ALL?')\"><button class='btn btn-red'>FACTORY RESET</button></form>";
+    h += "<div style='display:flex; gap:10px; margin-top:5px;'><form method='POST' action='/wifiReset' style='width:50%' onsubmit=\"return confirm('Reset WiFi Settings?')\"><button class='btn' style='background:#ff9800; color:#fff'>RESET WIFI</button></form>";
+    h += "<form method='POST' action='/evseReset' style='width:50%' onsubmit=\"return confirm('Reset EVSE Params?')\"><button class='btn' style='background:#ff9800; color:#fff'>RESET PARAMS</button></form></div></div>";
+    h += "<a class='btn' style='background:#444; color:#fff; margin-top:20px;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -586,7 +589,8 @@ static void handleEvseReset() {
 static void handleUpdate() {
     if(!checkAuth()) return;
     String h = "<html><head>"+String(dashStyle)+"</head><body><div class='container'><h1>OTA UPDATE</h1><form method='POST' action='/doUpdate' enctype='multipart/form-data'>";
-    h += "<input type='file' name='update' style='margin:20px 0;'><br><input type='submit' value='FLASH' class='btn'></form></div></body></html>";
+    h += "<input type='file' name='update' style='margin:20px 0;'><br><input type='submit' value='FLASH' class='btn'></form>";
+    h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -598,6 +602,7 @@ static void startCaptivePortal() {
     logger.infof("[NET] AP IP  : %s", WiFi.softAPIP().toString().c_str());
     webServer.on("/", HTTP_GET, handleRoot);
     webServer.on("/saveConfig", HTTP_POST, handleSaveConfig);
+    webServer.on("/scan", HTTP_GET, handleWifiScan);
     webServer.onNotFound(handleRoot);
     webServer.begin();
 }

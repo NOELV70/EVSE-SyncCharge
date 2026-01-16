@@ -1,5 +1,5 @@
 /* =========================================================================================
- * Project:     Evse_Simplified (EVSE-Arduino)
+ * Project:     Evse_Simplified (EVSE-Arduino) 
  * Description: A mission-critical, WiFi-enabled Electric Vehicle Supply Equipment (EVSE)
  *              controller built on the dual-core ESP32 platform.
  *

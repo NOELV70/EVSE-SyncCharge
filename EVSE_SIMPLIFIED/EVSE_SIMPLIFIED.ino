@@ -1,5 +1,5 @@
 /* =========================================================================================
- * Project:     Evse_Simplified (EVSE-Arduino) 
+ * Project:     Evse_Simplified 
  * Description: A mission-critical, WiFi-enabled Electric Vehicle Supply Equipment (EVSE)
  *              controller built on the dual-core ESP32 platform.
  *
@@ -93,7 +93,7 @@ void evseLoopTask(void* parameter) {
         // This ensures charging safety logic continues even if WiFi/Web UI freezes
         esp_task_wdt_reset();
         evse.loop();
-        vTaskDelay(pdMS_TO_TICKS(50)); // Run at ~20Hz to prevent starving the Web UI
+        vTaskDelay(pdMS_TO_TICKS(20)); // Run at ~50Hz to prevent starving the Web UI
     }
 }
 

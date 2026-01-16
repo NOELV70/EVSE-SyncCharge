@@ -1,26 +1,13 @@
+#include "hal/adc_types.h"
 #include <Arduino.h>
 #include <cstring>
 #include <cmath>
 #include <esp32-hal-ledc.h>
-#include <limits.h>
+#include <limits.h> // Added for INT_MAX
+
 
 #include "EvseLogger.h"
 #include "Pilot.h"
-
-/* =========================
- * PWM Configuration
- * ========================= */
-constexpr int PIN_PILOT_PWM_OUT    = 27;
-constexpr int PILOT_PWM_FREQ       = 1000;
-constexpr int PILOT_PWM_RESOLUTION = 12;
-constexpr int PILOT_PWM_MAX_DUTY   = (1 << PILOT_PWM_RESOLUTION) - 1;
-
-/* =========================
- * Analog Sampling Configuration
- * ========================= */
-constexpr int PIN_PILOT_IN = 36;
-// Sample for 2 full PWM periods (2ms total) to ensure we hit the peaks
-constexpr unsigned long SAMPLE_DURATION_US = (2 * 1000000) / PILOT_PWM_FREQ;
 
 // Constructor - Clean and empty because variables are initialized in the header
 Pilot::Pilot() 
@@ -29,9 +16,60 @@ Pilot::Pilot()
 
 void Pilot::begin()
 {
+// 1. Standard Arduino Setup
     analogReadResolution(12);
-    analogSetPinAttenuation(PIN_PILOT_IN, ADC_11db);
+    analogSetPinAttenuation(PIN_PILOT_IN, ADC_11db); // DB_11 is now DB_12 in IDF 5
     pinMode(PIN_PILOT_IN, INPUT);
+#if RAW_AD_USE
+    int ch = digitalPinToAnalogChannel(PIN_PILOT_IN);
+    if (ch < 0) { logger.error("[PILOT] Invalid ADC Pin"); return; }
+    _adc_channel = (adc_channel_t)ch;
+
+    #if USE_CONTINUAL_AD_READS
+        // 1. Setup DMA Handle
+        adc_continuous_handle_cfg_t adc_config = {
+            .max_store_buf_size = 2048,
+            .conv_frame_size = ADC_READ_BYTE_LEN ,
+        };
+        adc_continuous_new_handle(&adc_config, &_continuous_handle);
+
+        // 2. Configure 20kHz background sampling
+        adc_continuous_config_t dig_cfg = {
+            .sample_freq_hz = ADC_SAMPLE_RATE_HZ, 
+            .conv_mode = ADC_CONV_MODE,
+            .format = ADC_OUTPUT_TYPE,
+        };
+
+        adc_digi_pattern_config_t adc_pattern = {
+            .atten = ADC_ATTEN_DB_12,
+            .channel = (uint8_t)_adc_channel,
+            .unit = ADC_UNIT_1,
+            .bit_width = ADC_BITWIDTH_12,
+        };
+
+        dig_cfg.pattern_num = 1;
+        dig_cfg.adc_pattern = &adc_pattern;
+        
+        adc_continuous_config(_continuous_handle, &dig_cfg);
+        adc_continuous_start(_continuous_handle);
+        logger.info("[PILOT] DMA Continuous ADC Started (20kHz)");
+
+    #else
+        // Legacy Oneshot Setup
+        adc_oneshot_unit_init_cfg_t init_config = {.unit_id = ADC_UNIT_1};
+        adc_oneshot_new_unit(&init_config, &_adc_handle);
+        adc_oneshot_chan_cfg_t config = {.atten = ADC_ATTEN_DB_12, .bitwidth = ADC_BITWIDTH_12};
+        adc_oneshot_config_channel(_adc_handle, _adc_channel, &config);
+    #endif
+
+    // Calibration Setup (Shared)
+    adc_cali_line_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_1,
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    adc_cali_create_scheme_line_fitting(&cali_config, &cali_handle);
+#endif
     logger.info("[PILOT] ADC and PWM Pins configured");
 }
 
@@ -65,66 +103,112 @@ void Pilot::currentLimit(float amps)
     ledcWrite(PIN_PILOT_PWM_OUT, dutyCounts);
 }
 
-#include <limits.h> // Added for INT_MAX
 
-VEHICLE_STATE_T Pilot::read()
-{
+
+VEHICLE_STATE_T Pilot::read() {
     int highRaw = 0;
-    int lowRaw = INT_MAX; // Use INT_MAX to ensure the first sample is always lower
+    int lowRaw = INT_MAX;
+    int counts_ = 0;
+
+#if USE_CONTINUAL_AD_READS && RAW_AD_USE
+    uint8_t result[ADC_READ_BYTE_LEN];
+    uint32_t ret_num = 0;
     
-    // 1. Timed sampling for peak detection
+    // Grab everything the DMA has collected since last call
+    esp_err_t err = adc_continuous_read(_continuous_handle, result, ADC_READ_BYTE_LEN , &ret_num, 0);
+
+    if (err == ESP_OK) {
+        for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES) {
+            adc_digi_output_data_t *p = (adc_digi_output_data_t*)&result[i];
+            int val = p->type1.data;
+            if (val > highRaw) highRaw = val;
+            if (val < lowRaw)  lowRaw = val;
+            counts_++;
+        }
+        logger.debugf("[PILOT] - DMA #samples : %d", counts_);
+    } else{
+        // Fallback to your existing Oneshot logic (Stuck at 49 samples)
+        unsigned long startTime = micros();
+        int val;
+        while ((micros() - startTime) < PILOT_SAMPLE_DURATION_US) {
+            val = analogReadMilliVolts(PIN_PILOT_IN);
+            if (val > highRaw) highRaw = val;
+            if (val < lowRaw)  lowRaw = val;
+            counts_++;
+        }        
+        logger.debugf("[PILOT] - RECOVERY #samples : %d", counts_);
+    }
+#else
+    // Fallback to your existing Oneshot logic (Stuck at 49 samples)
     unsigned long startTime = micros();
-    while ((micros() - startTime) < SAMPLE_DURATION_US) {
-        int val = analogReadMilliVolts(PIN_PILOT_IN);
+    int val;
+    while ((micros() - startTime) < PILOT_SAMPLE_DURATION_US) {
+        #if RAW_AD_USE
+            adc_oneshot_read(_adc_handle, _adc_channel, &val);
+        #else
+            val = analogReadMilliVolts(PIN_PILOT_IN);
+        #endif
         if (val > highRaw) highRaw = val;
         if (val < lowRaw)  lowRaw = val;
+        counts_++;
     }
+    logger.debugf("[PILOT] - MAN #samples : %d", counts_);
+#endif
 
-    // 2. Convert to Pilot Levels
-    highVoltageMv = (int)convertMv(highRaw);      // High peak (State Detection)
-    lowVoltageMv = (int)convertMv(lowRaw);    // Low peak (Diode Detection)
 
-    VEHICLE_STATE_T currentState;
-
-    // 3. State Detection (High Peak) - Matches your second file's logic
-    if (highVoltageMv >= VOLTAGE_STATE_NOT_CONNECTED) {
-        currentState = VEHICLE_NOT_CONNECTED;
-    } 
-    else if (highVoltageMv >= VOLTAGE_STATE_CONNECTED) {
-        currentState = VEHICLE_CONNECTED;
-    } 
-    else if (highVoltageMv >= VOLTAGE_STATE_READY) {
-        currentState = VEHICLE_READY;
-    } 
-    else if (highVoltageMv >= VOLTAGE_STATE_VENTILATION) {
-        currentState = VEHICLE_READY_VENTILATION_REQUIRED;
-    } 
-    else {
-        // This covers the < 2V range (State E / Fault)
-        currentState = VEHICLE_NO_POWER; 
+    // Calibration
+#if RAW_AD_USE
+    if (cali_handle) {
+        int tHigh, tLow;
+        adc_cali_raw_to_voltage(cali_handle, highRaw, &tHigh);
+        adc_cali_raw_to_voltage(cali_handle, lowRaw, &tLow);
+        highRaw = tHigh;
+        lowRaw = tLow;
     }
+#endif
+    
+    // 2. Conversion
+    highVoltageMv = (int)convertMv(highRaw);
+    lowVoltageMv  = (int)convertMv(lowRaw);
 
-    // 4. Diode Check (The "Down Voltage" logic from your second file)
-    // J1772 requires a negative swing to ~ -12V. 
-    // If the PWM is ON (pwmAttached) but the low peak is too high (near 0V), 
-    // it's a Diode Error (State F).
-    if (pwmAttached && (currentState != VEHICLE_NOT_CONNECTED)) {
+    // 3. Temporary state determination
+    VEHICLE_STATE_T detectedState;
+    if (highVoltageMv >= VOLTAGE_STATE_NOT_CONNECTED)      detectedState = VEHICLE_NOT_CONNECTED;
+    else if (highVoltageMv >= VOLTAGE_STATE_CONNECTED)     detectedState = VEHICLE_CONNECTED;
+    else if (highVoltageMv >= VOLTAGE_STATE_READY)         detectedState = VEHICLE_READY;
+    else if (highVoltageMv >= VOLTAGE_STATE_VENTILATION)   detectedState = VEHICLE_READY_VENTILATION_REQUIRED;
+    else                                                   detectedState = VEHICLE_NO_POWER;
+
+    // Diode Check (State F)
+    if (pwmAttached && detectedState != VEHICLE_NOT_CONNECTED) {
         if (lowVoltageMv > VOLTAGE_STATE_N12V_THRESHOLD) {
-            // If low voltage is NOT negative enough, force an error
-            currentState = VEHICLE_ERROR; 
+            detectedState = VEHICLE_ERROR;
         }
     }
 
-    // 5. Logging on Change
-    if (currentState != lastVehicleState) {
-        lastVehicleState = currentState;
+    // 4. "Best of 3" Debouncing
+    // We only update lastVehicleState if we see the same detectedState multiple times
+    static VEHICLE_STATE_T candidateState = VEHICLE_ERROR;
+    static int stabilityCounter = 0;
+
+    if (detectedState == candidateState) {
+        stabilityCounter++;
+    } else {
+        candidateState = detectedState;
+        stabilityCounter = 0;
+    }
+
+    // Only commit to the change if it has been stable for 3 checks
+    if (stabilityCounter >= 3 && candidateState != lastVehicleState) {
+        lastVehicleState = candidateState;
+        
         char stateBuf[50];
-        vehicleStateToText(currentState, stateBuf);
-        logger.debugf("[PILOT] Change: %s (High: %d mV, Low: %d mV)", 
+        vehicleStateToText(lastVehicleState, stateBuf);
+        logger.debugf("[PILOT] Stable Change: %s (H:%dmV L:%dmV)", 
                       stateBuf, highVoltageMv, lowVoltageMv);
     }
 
-    return currentState;
+    return lastVehicleState;
 }
 
 /* API & Helper Methods */

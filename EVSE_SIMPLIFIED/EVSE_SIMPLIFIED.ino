@@ -132,18 +132,6 @@ void setup() {
     
     loadConfig(config);
 
-
-
-
-  Serial.print("MOSI: ");
-  Serial.println(MOSI);
-  Serial.print("MISO: ");
-  Serial.println(MISO);
-  Serial.print("SCK: ");
-  Serial.println(SCK);
-  Serial.print("SS: ");
-  Serial.println(SS);  
-
     logger.info("================================================");
     logger.infof("  EVSE - KERNEL %s", KERNEL_VERSION);
     logger.infof("  CODENAME : %s", KERNEL_CODENAME);

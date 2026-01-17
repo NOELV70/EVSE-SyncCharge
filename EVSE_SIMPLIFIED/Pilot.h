@@ -7,14 +7,18 @@
 #define PILOT_H_
 
 #include <Arduino.h>
+#include "sdkconfig.h"
 #include "EvseTypes.h" 
 
 // =========================
 // Constants - OFFICIAL SAE J1772 VALUES
 // =========================
 
-// Voltage divider scale factor (Matches your hardware)
-constexpr float PILOT_VOLTAGE_SCALE = ((1200.0+3300.0)/1200.0)*1.2; 
+// Voltage divider scale factor (Matches your hardware) ( 5K6 to +3v3 , 4K7 to gnd , 15K in seial with input signal ( output volatge following opamp) )
+const float ZERO_OFFSET_MV = 1310.0f;   // Vx when V2=0V
+const float SCALE = 6.90f;           // mV_out per mV_in
+
+
 
 // Current limits
 constexpr float MIN_CURRENT = 6.0f;
@@ -39,8 +43,14 @@ constexpr int VOLTAGE_STATE_N12V_THRESHOLD = 1000; // Threshold to verify -12V s
 /* =========================
  * PWM Configuration
  * ========================= */
+#if CONFIG_IDF_TARGET_ESP32
 constexpr int PIN_PILOT_PWM_OUT    = 27;
 constexpr int PIN_PILOT_IN         = 36;
+#elif CONFIG_IDF_TARGET_ESP32S3
+constexpr int PIN_PILOT_PWM_OUT    = 14;
+// GPIO 36 is NOT an ADC pin on ESP32-S3. We use GPIO 1 (ADC1_CH0) as default.
+constexpr int PIN_PILOT_IN         = 1;
+#endif
 
 constexpr int PILOT_PWM_FREQ       = 1000;
 
@@ -56,9 +66,9 @@ constexpr unsigned long PILOT_SAMPLE_DURATION_US = (2 * 1000000) / PILOT_PWM_FRE
 
 
 #define RAW_AD_USE 1 
-#define USE_CONTINUAL_AD_READS 1 // <--- NEW TOGGLE
 
 #if RAW_AD_USE
+#define USE_CONTINUAL_AD_READS 1 // USE DMA AD SAMPLING ! 
 #include <hal/adc_types.h>
 #include <esp_adc/adc_oneshot.h>
 #include <esp_adc/adc_continuous.h> // Required for DMA
@@ -68,7 +78,13 @@ constexpr unsigned long PILOT_SAMPLE_DURATION_US = (2 * 1000000) / PILOT_PWM_FRE
 #ifdef USE_CONTINUAL_AD_READS
 // DMA Configuration for 40kHz
 #define ADC_CONV_MODE       ADC_CONV_SINGLE_UNIT_1
+#if CONFIG_IDF_TARGET_ESP32
 #define ADC_OUTPUT_TYPE     ADC_DIGI_OUTPUT_FORMAT_TYPE1
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32S3
+#define ADC_OUTPUT_TYPE     ADC_DIGI_OUTPUT_FORMAT_TYPE2
+#endif
 
 
 constexpr int ADC_SAMPLE_RATE_HZ = 40 * PILOT_PWM_FREQ; 
@@ -80,8 +96,8 @@ constexpr int REQUIRED_SAMPLES = (PILOT_SAMPLE_DURATION_US * ADC_SAMPLE_RATE_HZ)
 // The DMA engine requires the frame size to be a multiple of SOC_ADC_DIGI_DATA_BYTES_PER_CONV 
 // and usually prefers powers of 2 for efficiency.
 // We'll set a buffer large enough to hold at least our REQUIRED_SAMPLES.
-constexpr int ADC_SAMPLES_COUNT = 256; // Fixed count for the hardware buffer
-constexpr int ADC_READ_BYTE_LEN = ADC_SAMPLES_COUNT * SOC_ADC_DIGI_RESULT_BYTES;
+constexpr int ADC_SAMPLES_COUNT = 128; // Fixed count for the hardware buffer (Power of 2 preferred)
+constexpr int ADC_READ_BYTE_LEN = ADC_SAMPLES_COUNT * 2; // 4 bytes per sample (SOC_ADC_DIGI_RESULT_BYTES)
 
 #endif
 #endif
@@ -101,6 +117,7 @@ private:
     
     #if USE_CONTINUAL_AD_READS
     adc_continuous_handle_t _continuous_handle = nullptr;
+    uint8_t* _dma_buffer = nullptr;
     #else
     adc_oneshot_unit_handle_t _adc_handle; 
     #endif
@@ -108,6 +125,7 @@ private:
 
 public:
     Pilot();
+    ~Pilot();
     void begin();
     void standby();
     void disable();

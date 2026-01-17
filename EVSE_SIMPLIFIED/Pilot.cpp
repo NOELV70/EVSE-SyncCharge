@@ -12,14 +12,33 @@
 // Constructor - Clean and empty because variables are initialized in the header
 Pilot::Pilot() 
 {
+#if USE_CONTINUAL_AD_READS && RAW_AD_USE
+    // Allocate buffer in constructor as requested
+    // Use MALLOC_CAP_INTERNAL to ensure DMA-capable memory (SRAM), avoiding PSRAM crashes on S3.
+    _dma_buffer = (uint8_t*)heap_caps_malloc(ADC_READ_BYTE_LEN, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#endif
+}
+
+Pilot::~Pilot()
+{
+#if USE_CONTINUAL_AD_READS && RAW_AD_USE
+    if (_dma_buffer) {
+        free(_dma_buffer);
+        _dma_buffer = nullptr;
+    }
+#endif
 }
 
 void Pilot::begin()
 {
+    logger.info("[PILOT] - begin");
 // 1. Standard Arduino Setup
+#ifndef  USE_CONTINUAL_AD_READS
     analogReadResolution(12);
     analogSetPinAttenuation(PIN_PILOT_IN, ADC_11db); // DB_11 is now DB_12 in IDF 5
     pinMode(PIN_PILOT_IN, INPUT);
+#endif
+
 #if RAW_AD_USE
     int ch = digitalPinToAnalogChannel(PIN_PILOT_IN);
     if (ch < 0) { logger.error("[PILOT] Invalid ADC Pin"); return; }
@@ -28,10 +47,13 @@ void Pilot::begin()
     #if USE_CONTINUAL_AD_READS
         // 1. Setup DMA Handle
         adc_continuous_handle_cfg_t adc_config = {
-            .max_store_buf_size = 2048,
+            .max_store_buf_size = ADC_READ_BYTE_LEN * 4, // Must be a multiple of conv_frame_size
             .conv_frame_size = ADC_READ_BYTE_LEN ,
         };
-        adc_continuous_new_handle(&adc_config, &_continuous_handle);
+        if (adc_continuous_new_handle(&adc_config, &_continuous_handle) != ESP_OK) {
+            logger.error("[PILOT] Failed to create ADC Continuous Handle");
+            return;
+        }
 
         // 2. Configure 20kHz background sampling
         adc_continuous_config_t dig_cfg = {
@@ -50,9 +72,15 @@ void Pilot::begin()
         dig_cfg.pattern_num = 1;
         dig_cfg.adc_pattern = &adc_pattern;
         
-        adc_continuous_config(_continuous_handle, &dig_cfg);
-        adc_continuous_start(_continuous_handle);
-        logger.info("[PILOT] DMA Continuous ADC Started (20kHz)");
+        if (adc_continuous_config(_continuous_handle, &dig_cfg) != ESP_OK) {
+            logger.error("[PILOT] Failed to configure ADC");
+            return;
+        }
+        if (adc_continuous_start(_continuous_handle) != ESP_OK) {
+            logger.error("[PILOT] Failed to start ADC");
+            return;
+        }
+        logger.info("[PILOT] DMA Continuous ADC Started (40kHz)");
 
     #else
         // Legacy Oneshot Setup
@@ -63,12 +91,22 @@ void Pilot::begin()
     #endif
 
     // Calibration Setup (Shared)
+    #if CONFIG_IDF_TARGET_ESP32
     adc_cali_line_fitting_config_t cali_config = {
         .unit_id = ADC_UNIT_1,
         .atten = ADC_ATTEN_DB_12,
         .bitwidth = ADC_BITWIDTH_12,
     };
     adc_cali_create_scheme_line_fitting(&cali_config, &cali_handle);
+    #endif 
+    #if CONFIG_IDF_TARGET_ESP32S3
+    adc_cali_curve_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_1,
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    adc_cali_create_scheme_curve_fitting(&cali_config, &cali_handle);
+    #endif
 #endif
     logger.info("[PILOT] ADC and PWM Pins configured");
 }
@@ -109,35 +147,41 @@ VEHICLE_STATE_T Pilot::read() {
     int highRaw = 0;
     int lowRaw = INT_MAX;
     int counts_ = 0;
-
 #if USE_CONTINUAL_AD_READS && RAW_AD_USE
-    uint8_t result[ADC_READ_BYTE_LEN];
+    if (!_dma_buffer) return lastVehicleState; // Safety check if allocation failed
+
     uint32_t ret_num = 0;
+    esp_err_t err;
     
     // Grab everything the DMA has collected since last call
-    esp_err_t err = adc_continuous_read(_continuous_handle, result, ADC_READ_BYTE_LEN , &ret_num, 0);
+    // Loop to drain the buffer completely (since loop runs every 20ms and DMA fills faster)
+    while (true) {
+        ret_num = 0;
+        err = adc_continuous_read(_continuous_handle, _dma_buffer, ADC_READ_BYTE_LEN, &ret_num, 0);
 
-    if (err == ESP_OK) {
+        if (err != ESP_OK || ret_num == 0) {
+            break;
+        }
+
         for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES) {
-            adc_digi_output_data_t *p = (adc_digi_output_data_t*)&result[i];
+            adc_digi_output_data_t *p = (adc_digi_output_data_t*)&_dma_buffer[i];
+            #if CONFIG_IDF_TARGET_ESP32
             int val = p->type1.data;
+            #endif 
+            #if CONFIG_IDF_TARGET_ESP32S3
+            int val = p->type2.data;
+            #endif
             if (val > highRaw) highRaw = val;
             if (val < lowRaw)  lowRaw = val;
             counts_++;
         }
-        logger.debugf("[PILOT] - DMA #samples : %d", counts_);
-    } else{
-        // Fallback to your existing Oneshot logic (Stuck at 49 samples)
-        unsigned long startTime = micros();
-        int val;
-        while ((micros() - startTime) < PILOT_SAMPLE_DURATION_US) {
-            val = analogReadMilliVolts(PIN_PILOT_IN);
-            if (val > highRaw) highRaw = val;
-            if (val < lowRaw)  lowRaw = val;
-            counts_++;
-        }        
-        logger.debugf("[PILOT] - RECOVERY #samples : %d", counts_);
     }
+
+    if (counts_ == 0) 
+    {
+        return lastVehicleState;
+    }
+   // logger.debugf("[PILOT] - DMA #samples : %d", counts_);
 #else
     // Fallback to your existing Oneshot logic (Stuck at 49 samples)
     unsigned long startTime = micros();
@@ -152,7 +196,7 @@ VEHICLE_STATE_T Pilot::read() {
         if (val < lowRaw)  lowRaw = val;
         counts_++;
     }
-    logger.debugf("[PILOT] - MAN #samples : %d", counts_);
+    //logger.debugf("[PILOT] - MAN #samples : %d", counts_);
 #endif
 
 
@@ -166,6 +210,7 @@ VEHICLE_STATE_T Pilot::read() {
         lowRaw = tLow;
     }
 #endif
+    //logger.debugf("[PILOT] - samples - HI %d , LOW: %d", highRaw, lowRaw);
     
     // 2. Conversion
     highVoltageMv = (int)convertMv(highRaw);
@@ -214,7 +259,9 @@ VEHICLE_STATE_T Pilot::read() {
 /* API & Helper Methods */
 float Pilot::getVoltage() { return (float)highVoltageMv / 1000.0f; }
 float Pilot::getPwmDuty() { return currentDutyPercent; }
-float Pilot::convertMv(int adMv) { return ((float)adMv * PILOT_VOLTAGE_SCALE); }
+float Pilot::convertMv(int adMv) {
+    return ((float)adMv - ZERO_OFFSET_MV) * SCALE;
+}
 
 float Pilot::ampsToDuty(float amps) {
     amps = constrain(amps, MIN_CURRENT, MAX_CURRENT);

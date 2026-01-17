@@ -93,7 +93,12 @@ void evseLoopTask(void* parameter) {
         // This ensures charging safety logic continues even if WiFi/Web UI freezes
         esp_task_wdt_reset();
         evse.loop();
-        vTaskDelay(pdMS_TO_TICKS(20)); // Run at ~50Hz to prevent starving the Web UI
+        // Dynamic polling: Fast (2ms) when connected for safety/PWM response, Slow (50ms) when idle.
+        if (evse.getVehicleState() != VEHICLE_NOT_CONNECTED) {
+            vTaskDelay(pdMS_TO_TICKS(3));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
     }
 }
 
@@ -126,6 +131,18 @@ void setup() {
     deviceId = String(devName);
     
     loadConfig(config);
+
+
+
+
+  Serial.print("MOSI: ");
+  Serial.println(MOSI);
+  Serial.print("MISO: ");
+  Serial.println(MISO);
+  Serial.print("SCK: ");
+  Serial.println(SCK);
+  Serial.print("SS: ");
+  Serial.println(SS);  
 
     logger.info("================================================");
     logger.infof("  EVSE - KERNEL %s", KERNEL_VERSION);

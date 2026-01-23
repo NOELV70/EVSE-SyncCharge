@@ -25,30 +25,32 @@ Synchronized Soft-Stop: Prevents contactor arcing by electronically terminating 
 Anti-Chatter Hysteresis: Intelligent state-machine logic filters signal noise to prevent rapid relay cycling, extending hardware lifespan.
 
 Universal Connectivity
-Designed for the modern energy ecosystem, Evse_Simplified speaks the languages of both Smart Homes and Commercial Grids.
+* Designed for the modern energy ecosystem, Evse_Simplified speaks the languages of both Smart Homes and Commercial Grids.
 
-OCPP 1.6J Compliance: Full WebSocket/WSS implementation allows connection to commercial backends (SteVe, Monta, etc.) for remote billing, authorization, and fleet management.
+* OCPP 1.6J Compliance: Full WebSocket/WSS implementation allows connection to commercial backends (SteVe, Monta, etc.) for remote billing, authorization, and fleet management.
 
-Native MQTT & Home Assistant: Features "Zero-Config" Auto-Discovery for Home Assistant. Instantly exposes sensors for Current, Voltage, Pilot Duty, and Vehicle State without writing a single line of YAML.
+* Native MQTT & Home Assistant: Features "Zero-Config" Auto-Discovery for Home Assistant.
+  Instantly exposes sensors for Current, Voltage, Pilot Duty, and Vehicle State without writing a single line of YAML.
 
-Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
+* Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
 
 Intelligent Energy Management
 Turn your EV into a grid-stabilizing asset.
 
-Solar Excess Charging: Supports dynamic amperage adjustment (6A–80A) in real-time. The unique "Solar Throttle" mode allows the system to modulate charging power to match solar production curve perfectly.
+Solar Excess Charging: Supports dynamic amperage adjustment (6A–80A) in real-time. 
+The unique "Solar Throttle" mode allows the system to modulate charging power to match solar production curve perfectly.
+
 Dynamic Load Balancing: Real-time API endpoints allow external energy meters to throttle the EVSE instantly when household loads (like heat pumps or ovens) peak.
 
 Technical Specifications
-Feature	Specification
-Core Architecture	Dual-Core ESP32 (FreeRTOS)
-Protocol	SAE J1772 / IEC 61851 (States A-F)
-PWM Precision	1kHz @ 12-bit Resolution
-Security	WPA2/WPA3 WiFi, TLS/SSL for OCPP
-Updates	OTA (Over-The-Air) with Safety Interlock
-Diagnostics	Real-time "Cyan-Diag" Web Console
+  Core Architecture	Dual-Core ESP32 (FreeRTOS)
+  Protocol	SAE J1772 / IEC 61851 (States A-F)
+  PWM Precision	1kHz @ 12-bit Resolution
+  Security	WPA2/WPA3 WiFi, TLS/SSL for OCPP
+  Updates	OTA (Over-The-Air) with Safety Interlock
+  Diagnostics	Real-time "Cyan-Diag" Web Console
 
 Why Evse_Simplified?
-Most DIY controllers are just "smart relays." Evse_Simplified is a Charge Controller. 
-It understands the physics of the Pilot signal, respects the safety limits of the vehicle's Onboard Charger, and integrates seamlessly into professional energy management systems.
+  Most DIY controllers are just "smart relays." Evse_Simplified is a Charge Controller. 
+  It understands the physics of the Pilot signal, respects the safety limits of the vehicle's Onboard Charger, and integrates seamlessly into professional energy management systems.
 

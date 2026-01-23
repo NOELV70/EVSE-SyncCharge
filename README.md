@@ -55,3 +55,11 @@ Why Evse_Simplified?
   Most DIY controllers are just "smart relays." Evse_Simplified is a Charge Controller. 
   It understands the physics of the Pilot signal, respects the safety limits of the vehicle's Onboard Charger, and integrates seamlessly into professional energy management systems.
 
+<img width="599" height="747" alt="image" src="https://github.com/user-attachments/assets/c54b1611-8b2c-4dae-ab47-75383c240171" />
+<img width="578" height="894" alt="image" src="https://github.com/user-attachments/assets/615cf967-1121-4093-954a-ca737cb721dd" />
+<img width="544" height="877" alt="image" src="https://github.com/user-attachments/assets/2cb59e41-261e-4c45-a2f2-ec754b5e7882" />
+<img width="522" height="730" alt="image" src="https://github.com/user-attachments/assets/e8977c46-8974-4426-9abe-26caa5f04311" />
+
+
+
+

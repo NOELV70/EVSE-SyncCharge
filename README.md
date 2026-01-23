@@ -9,7 +9,8 @@ A real-time link between grid and EV, delivering millisecond-level signaling, OT
 
 
 Evse_Simplified is a firmware architecture designed to transform the ESP32 into a fully compliant, safety-first Electric Vehicle Supply Equipment (EVSE) controller. 
-Unlike basic "smart plugs," this Firmare implements the full SAE J1772 / IEC 61851 protocol stack, providing a robust foundation for dynamic load balancing, 
+
+This Firmare implements the full SAE J1772 / IEC 61851 protocol stack, providing a robust foundation for dynamic load balancing, 
 solar energy matching.
 
 Safety-First Architecture

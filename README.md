@@ -13,14 +13,14 @@ Unlike basic "smart plugs," this Firmare implements the full SAE J1772 / IEC 618
 solar energy matching.
 
 Safety-First Architecture
-Built on a "Safety-Kernel" design philosophy, the system prioritizes physical protection of the vehicle and infrastructure above all else.
+Built on a "Safety" design philosophy, the system prioritizes physical protection of the vehicle and infrastructure above all else.
 
 Integrated RCM Protection: Native support for Residual Current Monitors (RCM) with automated IEC-compliant self-testing intervals. 
 The system executes a pre-charge safety check before every session and instantly trips the contactor if a fault is detected.
 
 Dual-Layer Watchdog Supervision:
 Hardware WDT: An 8-second hardware supervisor resets the MCU in the event of a network stack deadlock.
-ThrottleAlive™ Protocol: A centralized safety heartbeat that automatically throttles charging to a safe minimum (6A) if external control signals (MQTT/OCPP) are lost, preventing grid overloads during network outages.
+ThrottleAlive™ Protocol: A centralized safety heartbeat that automatically throttles charging to a safe minimum, if external control signals (MQTT/OCPP) are lost, preventing grid overloads during network outages.
 Synchronized Soft-Stop: Prevents contactor arcing by electronically terminating the charge via the Pilot signal, milliseconds before opening the mechanical relay.
 Anti-Chatter Hysteresis: Intelligent state-machine logic filters signal noise to prevent rapid relay cycling, extending hardware lifespan.
 

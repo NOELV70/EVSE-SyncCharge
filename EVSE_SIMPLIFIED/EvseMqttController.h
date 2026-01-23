@@ -94,11 +94,12 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include "EvseCharge.h"
+#include "Pilot.h"
 #include <functional>
 
 class EvseMqttController {
 public:
-    EvseMqttController(EvseCharge& evseCharge);
+    EvseMqttController(EvseCharge& evseCharge, Pilot& pilotRef);
     void begin(const char* mqttServer, int mqttPort,
                const char* mqttUser, const char* mqttPass,
                const String& deviceIdString);
@@ -115,6 +116,7 @@ private:
     
     String serverHost; // Store host to check if configured
     EvseCharge* evse;
+    Pilot* pilot;
     WiFiClient mqttWiFiClient;
     PubSubClient mqttClient;
 

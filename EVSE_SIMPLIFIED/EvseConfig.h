@@ -14,6 +14,7 @@ struct AppConfig {
     String staticIp = "192.168.1.100";
     String staticGw = "192.168.1.1";
     String staticSn = "255.255.255.0";
+    bool mqttEnabled = false;
     String mqttHost;
     uint16_t mqttPort = 1883;
     String mqttUser;
@@ -27,6 +28,18 @@ struct AppConfig {
     bool mqttFailsafeEnabled = false;
     unsigned long mqttFailsafeTimeout = 600; // Seconds
     bool rcmEnabled = true;
+    unsigned long solarStopTimeout = 0; // 0 = Disabled
+
+    // OCPP Configuration
+    bool ocppEnabled = false;
+    String ocppHost = "";
+    uint16_t ocppPort = 80;
+    String ocppUrl = "/ocpp/1.6";
+    bool ocppUseTls = false;
+    String ocppAuthKey = "";
+    int ocppHeartbeatInterval = 60;
+    int ocppReconnectInterval = 5000;
+    int ocppConnTimeout = 10000;
 };
 
 // Helper to get version string

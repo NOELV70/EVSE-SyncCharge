@@ -15,7 +15,7 @@
 // =========================
 
 // Voltage divider scale factor (Matches your hardware) ( 5K6 to +3v3 , 4K7 to gnd , 15K in seial with input signal ( output volatge following opamp) )
-const float ZERO_OFFSET_MV = 1310.0f;   // Vx when V2=0V
+const float ZERO_OFFSET_MV = 1200.0f;   // Vx when V2=0V
 const float SCALE = 6.90f;           // mV_out per mV_in
 
 
@@ -129,6 +129,7 @@ public:
     void begin();
     void standby();
     void disable();
+    void stop();
     void currentLimit(float amps);
     VEHICLE_STATE_T read();
     float getVoltage();

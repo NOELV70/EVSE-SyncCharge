@@ -57,6 +57,7 @@
 #include "EvseMqttController.h"
 #include "EvseConfig.h"
 #include "WebController.h"
+#include "OCPPHandler.h"
 
 #define BAUD_RATE 115200
 #define WDT_TIMEOUT 8 
@@ -65,16 +66,19 @@
 Pilot pilot;
 Rcm rcm;
 EvseCharge evse(pilot);
-EvseMqttController mqttController(evse);
+EvseMqttController mqttController(evse, pilot);
+OCPPHandler ocppHandler(evse, pilot);
 TaskHandle_t evseTaskHandle = NULL;
 AppConfig config;
-WebController webController(evse, pilot, mqttController, config);
+WebController webController(evse, pilot, mqttController, ocppHandler, config);
 String deviceId;
+bool isFallbackApMode = false;
+volatile bool g_otaUpdating = false;
 
 /* --- HELPERS --- */
 
 static void applyMqttConfig() {
-    if(config.mqttHost.length() > 0) {
+    if(config.mqttEnabled && config.mqttHost.length() > 0) {
         mqttController.begin(config.mqttHost.c_str(), config.mqttPort, config.mqttUser.c_str(), config.mqttPass.c_str(), deviceId);
     }
 }
@@ -84,6 +88,9 @@ static void applyMqttConfig() {
 // Run EVSE logic on a dedicated high-priority task to prevent WiFi/Web lag
 // from affecting safety timings.
 void evseLoopTask(void* parameter) {
+    // Retrieve the OTA flag pointer passed during task creation
+    volatile bool* pOtaUpdating = (volatile bool*)parameter;
+
     // SAFETY: Register this task with the Watchdog Timer.
     // Without this, esp_task_wdt_reset() inside this loop does nothing.
     esp_task_wdt_add(NULL);
@@ -92,6 +99,15 @@ void evseLoopTask(void* parameter) {
         // SAFETY: Reset watchdog so if main loop blocks, EVSE task prevents hard reboot
         // This ensures charging safety logic continues even if WiFi/Web UI freezes
         esp_task_wdt_reset();
+
+        if(pOtaUpdating)
+        if (*pOtaUpdating) {
+            logger.info("[EVSE_TASK] OTA Flag detected. Unregistering WDT...");
+            esp_task_wdt_delete(NULL);
+            logger.info("[EVSE_TASK] WDT Unregistered. Deleting task...");
+            vTaskDelete(NULL);
+        }
+
         evse.loop();
         // Dynamic polling: Fast (2ms) when connected for safety/PWM response, Slow (50ms) when idle.
         if (evse.getVehicleState() != VEHICLE_NOT_CONNECTED) {
@@ -103,6 +119,9 @@ void evseLoopTask(void* parameter) {
 }
 
 void setup() {
+    // Power stabilization delay to prevent brownouts at boot
+    delay(1000);
+
     evse.preinit_hard(); 
 
     esp_task_wdt_config_t twdt_config = {
@@ -114,9 +133,10 @@ void setup() {
     esp_task_wdt_add(NULL); 
 
     ArduinoOTA.onStart([]() {
-        if (evseTaskHandle != NULL) vTaskSuspend(evseTaskHandle);
+        g_otaUpdating = true;
+        delay(100);
         evse.stopCharging(); 
-        pilot.disable(); 
+        pilot.stop(); 
     });
 
     Serial.begin(BAUD_RATE);
@@ -143,21 +163,10 @@ void setup() {
     cs.maxCurrent = config.maxCurrent; 
     cs.disableAtLowLimit = !config.allowBelow6AmpCharging; // Invert logic for internal struct
     cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
-    evse.setup(cs);
-    evse.setRcmEnabled(config.rcmEnabled);
-
-    // RCM Initialization & Self-Test
-    rcm.begin();
-    if (config.rcmEnabled) {
-        if (!rcm.selfTest()) {
-            logger.error("[MAIN] Boot-up RCM Self-Test FAILED");
-        } else {
-            logger.info("[MAIN] Boot-up RCM Self-Test PASSED");
-        }
-    }
 
     // Link MQTT Failsafe commands to AppConfig
     mqttController.setFailsafeConfig(config.mqttFailsafeEnabled, config.mqttFailsafeTimeout);
+    evse.setThrottleAliveTimeout(config.solarStopTimeout);
     mqttController.onFailsafeCommand([](bool enabled, unsigned long timeout){
         config.mqttFailsafeEnabled = enabled;
         config.mqttFailsafeTimeout = timeout;
@@ -168,20 +177,25 @@ void setup() {
         saveConfig(config); // Persist to NVS
     });
 
+    // Initialize OCPP
+    ocppHandler.setConfig(config.ocppEnabled, config.ocppHost, config.ocppPort, config.ocppUrl, config.ocppUseTls, config.ocppAuthKey, config.ocppHeartbeatInterval, config.ocppReconnectInterval);
+
     if (config.wifiSsid.length() == 0) {
         webController.begin(deviceId, true);
     } else {
         WiFi.mode(WIFI_STA);
+        WiFi.setSleep(false); // Disable WiFi power saving to prevent latency/crashes
         if (config.useStatic) {
             IPAddress ip, gw, sn;
             if (ip.fromString(config.staticIp) && gw.fromString(config.staticGw) && sn.fromString(config.staticSn)) WiFi.config(ip, gw, sn);
         }
         WiFi.begin(config.wifiSsid.c_str(), config.wifiPass.c_str());
         int retry = 0;
-        while (WiFi.status() != WL_CONNECTED && retry < 20) { delay(500); retry++; esp_task_wdt_reset(); }
+        while (WiFi.status() != WL_CONNECTED && retry < 360) { delay(500); retry++; esp_task_wdt_reset(); }
 
         if (WiFi.status() != WL_CONNECTED) {
             webController.begin(deviceId, true);
+            isFallbackApMode = true;
         } else {
             logger.info("[NET] WiFi Connected!");
             logger.infof("[NET] SSID     : %s", config.wifiSsid.c_str());
@@ -189,27 +203,68 @@ void setup() {
             logger.infof("[NET] MAC ADDR : %s", WiFi.macAddress().c_str());
             logger.infof("[NET] HOSTNAME : %s", deviceId.c_str());
             applyMqttConfig();
+            
+            // Start OCPP only after network is established to save resources during boot
+            if (config.ocppEnabled) {
+                ocppHandler.begin();
+            }
             webController.begin(deviceId, false);
         }
     }
-    MDNS.begin(deviceId.c_str());
 
+    // --- HARDWARE INITIALIZATION ---
+    // Moved here to prevent Cache Error crashes during WiFi/NVS initialization.
+    // The ADC DMA interrupts must not fire while WiFi is initializing the RF/NVS.
+    logger.info("[MAIN] Initializing EVSE Hardware...");
+    evse.setup(cs);
+    evse.setRcmEnabled(config.rcmEnabled);
+
+    // RCM Initialization & Self-Test
+    if (config.rcmEnabled) {
+        rcm.begin();
+        if (!rcm.selfTest()) {
+            logger.error("[MAIN] Boot-up RCM Self-Test FAILED");
+        } else {
+            logger.info("[MAIN] Boot-up RCM Self-Test PASSED");
+        }
+    }
+
+    MDNS.begin(deviceId.c_str());
     ArduinoOTA.begin();
 
     // Create the Safety Task on Core 1 (App Core) with higher priority (2) than loop (1)
     // This ensures charging logic takes precedence over Network/UI.
-    xTaskCreatePinnedToCore(evseLoopTask, "EVSE_Logic", 8192, NULL, 2, &evseTaskHandle, 1);
+    xTaskCreatePinnedToCore(evseLoopTask, "EVSE_Logic", 8192, (void*)&g_otaUpdating, 2, &evseTaskHandle, 1);
+
 }
 
 void loop() {
     esp_task_wdt_reset(); 
+
+    // WiFi Recovery Logic (AP Fallback -> STA)
+    if (isFallbackApMode) {
+        static unsigned long lastWifiRetry = 0;
+        if (WiFi.status() == WL_CONNECTED) {
+            logger.info("[NET] WiFi Recovered! Rebooting...");
+            delay(2000);
+            ESP.restart();
+        }
+        if (millis() - lastWifiRetry > 300000UL) {
+            lastWifiRetry = millis();
+            logger.info("[NET] Retrying WiFi connection...");
+            WiFi.mode(WIFI_AP_STA);
+            WiFi.begin(config.wifiSsid.c_str(), config.wifiPass.c_str());
+        }
+    }
+
     webController.loop();
-    mqttController.loop();
+    if (config.mqttEnabled) mqttController.loop();
+    if (config.ocppEnabled) ocppHandler.loop();
     ArduinoOTA.handle();
     
     // MQTT HEARTBEAT & FAILSAFE
     static unsigned long lastMqttSeen = 0;
-    if (mqttController.connected()) {
+    if (config.mqttEnabled && mqttController.connected()) {
         lastMqttSeen = millis();
     } else if (config.mqttFailsafeEnabled && (millis() - lastMqttSeen > (config.mqttFailsafeTimeout * 1000UL))) {
         // If we are charging and haven't seen the broker for [timeout] seconds, STOP.
@@ -217,5 +272,15 @@ void loop() {
             logger.error("[SAFETY] MQTT Connection Lost. Failsafe triggered: Stopping Charge.");
             evse.stopCharging();
         }
+    }
+
+    // Feed OCPP with data
+    static unsigned long lastOcppUpdate = 0;
+    if (config.ocppEnabled && (millis() - lastOcppUpdate > 1000)) {
+        lastOcppUpdate = millis();
+        ActualCurrent ac = evse.getActualCurrent();
+        // Assuming 230V for power calculation
+        float totalCurrent = ac.l1 + ac.l2 + ac.l3;
+        ocppHandler.setConnectorData(totalCurrent, 230.0f, totalCurrent * 230.0f, 0.0f);
     }
 }

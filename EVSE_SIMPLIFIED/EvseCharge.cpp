@@ -40,6 +40,7 @@ void EvseCharge::setup(ChargingSettings settings_) {
     vehicleState = VEHICLE_NOT_CONNECTED;
     state = STATE_READY;
     _actualCurrentUpdated = 0;
+    userPaused = false;
     
     // SAFETY: Initialize error lockout as FAIL-SAFE (true = locked)
     // Prevents restart immediately after watchdog reboot if vehicle was in error state
@@ -83,6 +84,28 @@ void EvseCharge::loop() {
     updateVehicleState();
     managePwmAndRelay();           // SAE J1772 state machine
     checkResumeFromLowLimit();
+
+    // ThrottleAlive Logic (Centralized Safety)
+    // If enabled (>0) and charging, check if external control data is stale.
+    if (throttleAliveTimeout > 0 && state == STATE_CHARGING) {
+        unsigned long now = millis();
+        if ((now - lastThrottleAliveTime) > (throttleAliveTimeout * 1000UL)) {
+            // Data is stale. Check if we need to ramp down.
+            if (currentLimit > 6.0f) {
+                // Ramp down by 1A every 5 seconds
+                if (now - lastThrottleRampTime >= 5000UL) {
+                    float next = currentLimit - 1.0f;
+                    if (next < 6.0f) next = 6.0f;
+                    logger.warnf("[EVSE] ThrottleAlive: Stale data. Ramping %.1fA -> %.1fA", currentLimit, next);
+                    setCurrentLimit(next);
+                    lastThrottleRampTime = now;
+                }
+            }
+        } else {
+            // Data is fresh. Reset ramp timer so first drop happens immediately on timeout.
+            lastThrottleRampTime = now - 5000UL; 
+        }
+    }
 }
 
 void EvseCharge::updateVehicleState() {
@@ -150,6 +173,8 @@ void EvseCharge::startCharging() {
 
     state = STATE_CHARGING;
     started = millis();
+    userPaused = false; // Clear pause flag on start/resume
+    lastThrottleAliveTime = millis(); // Reset ThrottleAlive timer on start
     applyCurrentLimit();
     if (stateChange) stateChange();
 }
@@ -158,13 +183,29 @@ void EvseCharge::stopCharging() {
     logger.info("[EVSE] stopCharging() called");
     relay->openImmediately();
     if (state != STATE_CHARGING) {
+        userPaused = false; // Ensure pause flag is cleared if we force stop from non-charging state
         logger.warn("[EVSE] Stop ignored: Not charging");
         return;
     }
 
     logger.info("[EVSE] Stop charging");
     state = STATE_READY;
+    userPaused = false; // Clear pause flag on explicit stop
     if (stateChange) stateChange();
+}
+
+void EvseCharge::pauseCharging() {
+    if (state == STATE_CHARGING) {
+        logger.info("[EVSE] pauseCharging() called");
+        // We call stopCharging logic manually here to avoid clearing the userPaused flag
+        // which stopCharging() normally does.
+        relay->openImmediately();
+        state = STATE_READY;
+        userPaused = true;
+        if (stateChange) stateChange();
+    } else {
+        logger.warn("[EVSE] Pause ignored: Not charging");
+    }
 }
 
 STATE_T EvseCharge::getState() const {
@@ -177,6 +218,16 @@ VEHICLE_STATE_T EvseCharge::getVehicleState() const {
 //    vehicleStateToText(vehicleState, buf);
 //    logger.debugf("[EVSE] getVehicleState -> %s", buf);
     return vehicleState;
+}
+
+bool EvseCharge::isVehicleConnected() const {
+    return (vehicleState == VEHICLE_CONNECTED || 
+            vehicleState == VEHICLE_READY || 
+            vehicleState == VEHICLE_READY_VENTILATION_REQUIRED);
+}
+
+bool EvseCharge::isPaused() const {
+    return userPaused;
 }
 
 float EvseCharge::getCurrentLimit() const {
@@ -233,10 +284,18 @@ void EvseCharge::enableCurrentTest(bool enable) {
 void EvseCharge::setCurrentTest(float amps) {
     if (!currentTest) return;
     if (amps < MIN_CURRENT) amps = MIN_CURRENT;
-    if (amps > settings.maxCurrent) amps = settings.maxCurrent;
 
     logger.infof("[EVSE] Test current set to %.2f A", amps);
     pilot->currentLimit(amps);
+}
+
+void EvseCharge::setThrottleAliveTimeout(unsigned long seconds) {
+    throttleAliveTimeout = seconds;
+    logger.infof("[EVSE] ThrottleAlive timeout set to %lu s", seconds);
+}
+
+void EvseCharge::signalThrottleAlive() {
+    lastThrottleAliveTime = millis();
 }
 
 void EvseCharge::onVehicleStateChange(EvseEventHandler handler) { vehicleStateChange = handler; }
@@ -256,9 +315,15 @@ void EvseCharge::checkResumeFromLowLimit() {
 }
 
 void EvseCharge::applyCurrentLimit() {
+    // TEST MODE: Keep PWM running (ignore vehicle state) and force Relay OPEN
+    if (currentTest) {
+        relay->open();
+        return;
+    }
+
     // J1772 Compliance: If not charging (and not in test mode), force DC Standby.
     // Prevents sending PWM (State B2) when we are only in State B1 (EVSE Ready, but not authorized).
-    if (state != STATE_CHARGING && !currentTest) {
+    if (state != STATE_CHARGING) {
         pilot->standby();
         relay->open();
         return;
@@ -353,6 +418,12 @@ void EvseCharge::setLowLimitResumeDelay(unsigned long ms) {
  * ========================= */
 
 void EvseCharge::managePwmAndRelay() {
+    // TEST MODE: Skip J1772 state enforcement to keep PWM running
+    if (currentTest) {
+        relay->open();
+        return;
+    }
+
     // Detect vehicle state transitions for error handling
     if (vehicleState != lastManagedVehicleState) {
         lastManagedVehicleState = vehicleState;

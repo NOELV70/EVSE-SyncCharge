@@ -16,8 +16,8 @@
 #include "EvseMqttController.h"
 #include "EvseLogger.h"
 
-EvseMqttController::EvseMqttController(EvseCharge& evseCharge)
-    : mqttClient(mqttWiFiClient), evse(&evseCharge) { }
+EvseMqttController::EvseMqttController(EvseCharge& evseCharge, Pilot& pilotRef)
+    : mqttClient(mqttWiFiClient), evse(&evseCharge), pilot(&pilotRef) { }
 
 void EvseMqttController::begin(const char* mqttServer, int mqttPort,
                                const char* mqttUser, const char* mqttPass,
@@ -182,13 +182,17 @@ void EvseMqttController::mqttCallback(char* topic, byte* payload, unsigned int l
 
     if (strcmp(topic, topicCommand.c_str()) == 0)
     {
-        if (msg == "start") evse->startCharging();
+        if (msg == "start") {
+            evse->startCharging();
+            evse->signalThrottleAlive();
+        }
         else if (msg == "stop")  evse->stopCharging();
     }
     else if (strcmp(topic, topicSetCurrent.c_str()) == 0)
     {
         float amps = msg.toFloat();
         evse->setCurrentLimit(amps);
+        evse->signalThrottleAlive();
     }
     else if (strcmp(topic, topicDisableAtLowLimit.c_str()) == 0)
     {
@@ -225,12 +229,7 @@ void EvseMqttController::mqttCallback(char* topic, byte* payload, unsigned int l
             if (duty > 100.0f) duty = 100.0f;
 
             // Convert PWM duty (%) to approximate amps using Pilot mapping
-            float amps = 0.0f;
-            const float thresholdDuty = 51.0f / 0.6f; // ~85.0
-            if (duty <= thresholdDuty)
-                amps = duty * 0.6f;
-            else
-                amps = (duty - 64.0f) * 2.5f;
+            float amps = pilot->dutyToAmps(duty);
 
             evse->enableCurrentTest(true);
             evse->setCurrentTest(amps);

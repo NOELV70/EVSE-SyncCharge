@@ -42,7 +42,7 @@ window.onload = toggleStaticFields;
 const char* ajaxScript = R"rawliteral(
 <script>
 setInterval(function(){
-fetch('/status').then(r=>r.json()).then(d=>{
+fetch('/status?t='+Date.now()).then(r=>r.json()).then(d=>{
 document.getElementById('vst').innerText=d.vst;
 document.getElementById('clim').innerText=d.clim.toFixed(1);
 document.getElementById('pwm').innerText=d.pwm;
@@ -50,6 +50,35 @@ document.getElementById('pvolt').innerText=d.pvolt.toFixed(2);
 document.getElementById('acrel').innerText=d.acrel;
 document.getElementById('upt').innerText=d.upt;
 document.getElementById('rssi').innerText=d.rssi;
+
+var bStart=document.getElementById('btn-start');
+var bPause=document.getElementById('btn-pause');
+function setEn(b,en){
+ if(en){b.disabled=false;b.style.opacity='1';b.style.cursor='pointer';b.style.background='';b.style.color='';}
+ else{b.disabled=true;b.style.opacity='1';b.style.cursor='not-allowed';b.style.background='#333';b.style.color='#777';}
+}
+if(bStart){
+ var canStart = d.conn && d.state!=1 && !d.paused;
+ setEn(bStart, canStart);
+ bStart.style.display='inline-block';
+}
+if(bPause){
+ bPause.style.display='inline-block';
+ if(d.state==1){
+  setEn(bPause,d.conn);
+  if(d.conn){bPause.style.background='#ff9800';bPause.style.color='#fff';}
+  bPause.innerText='PAUSE CHARGING';
+  bPause.onclick=function(){confirmCmd('pause',this)};
+ }else if(d.paused){
+  setEn(bPause,d.conn);
+  if(d.conn){bPause.style.background='#4caf50';bPause.style.color='#fff';}
+  bPause.innerText='RESUME CHARGING';
+  bPause.onclick=function(){confirmCmd('start',this)};
+ }else{
+  bPause.innerText='PAUSE CHARGING';
+  setEn(bPause, false);
+ }
+}
 });},1000);
 </script>
 )rawliteral";

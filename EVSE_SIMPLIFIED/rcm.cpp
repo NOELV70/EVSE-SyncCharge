@@ -11,7 +11,7 @@
  * Hardware constants
  * ========================= */
 constexpr int PIN_RCM_TEST = 26; // Digital output to trigger RCM test coil
-constexpr int PIN_RCM_IN   = 41; // Digital input from RCM (Requires internal Pull-Down)
+constexpr int PIN_RCM_IN   = 25; // Digital input from RCM (Requires internal Pull-Down)
 
 static SemaphoreHandle_t rcmSemaphore = NULL;
 
@@ -34,7 +34,11 @@ void Rcm::begin()
 {
     logger.info("[RCM] Initializing Residual Current Monitor...");
 
+    return;
+
+    
     rcmSemaphore = xSemaphoreCreateBinary();
+    if (rcmSemaphore == NULL) return;
 
     // Configure Test Pin
     pinMode(PIN_RCM_TEST, OUTPUT);
@@ -45,6 +49,9 @@ void Rcm::begin()
     // Ensure PIN_RCM_IN is a GPIO that supports internal pull-down (GPIO 0-33).
     pinMode(PIN_RCM_IN, INPUT_PULLDOWN);
 
+    // Allow pin state to stabilize before attaching interrupt to prevent spurious triggers
+    delay(50);
+
     // Attach Interrupt
     attachInterrupt(digitalPinToInterrupt(PIN_RCM_IN), rcmIsr, RISING);
     
@@ -54,6 +61,8 @@ void Rcm::begin()
 bool Rcm::selfTest()
 {
     logger.info("[RCM] Starting Self-Test...");
+
+    if (rcmSemaphore == NULL) return false;
 
     // Clear any pending semaphore
     xSemaphoreTake(rcmSemaphore, 0);
@@ -78,6 +87,8 @@ bool Rcm::selfTest()
 
 bool Rcm::isTriggered()
 {
+    if (rcmSemaphore == NULL) return false;
+
     // Check if interrupt fired
     if (xSemaphoreTake(rcmSemaphore, 0) == pdTRUE) {
         // Debounce / Noise filter

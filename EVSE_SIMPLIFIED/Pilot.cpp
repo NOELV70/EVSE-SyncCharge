@@ -74,10 +74,14 @@ void Pilot::begin()
         
         if (adc_continuous_config(_continuous_handle, &dig_cfg) != ESP_OK) {
             logger.error("[PILOT] Failed to configure ADC");
+            adc_continuous_deinit(_continuous_handle);
+            _continuous_handle = nullptr;
             return;
         }
         if (adc_continuous_start(_continuous_handle) != ESP_OK) {
             logger.error("[PILOT] Failed to start ADC");
+            adc_continuous_deinit(_continuous_handle);
+            _continuous_handle = nullptr;
             return;
         }
         logger.info("[PILOT] DMA Continuous ADC Started (40kHz)");
@@ -127,6 +131,19 @@ void Pilot::disable()
     standby();
 }
 
+void Pilot::stop()
+{
+    standby(); // Force PWM to 12V (Safety)
+#if USE_CONTINUAL_AD_READS && RAW_AD_USE
+    if (_continuous_handle) {
+        logger.info("[PILOT] Stopping ADC for OTA...");
+        adc_continuous_stop(_continuous_handle);
+        adc_continuous_deinit(_continuous_handle);
+        _continuous_handle = nullptr;
+    }
+#endif
+}
+
 void Pilot::currentLimit(float amps)
 {
     float dutyPercent = ampsToDuty(amps);
@@ -149,6 +166,7 @@ VEHICLE_STATE_T Pilot::read() {
     int counts_ = 0;
 #if USE_CONTINUAL_AD_READS && RAW_AD_USE
     if (!_dma_buffer) return lastVehicleState; // Safety check if allocation failed
+    if (!_continuous_handle) return lastVehicleState; // Safety check if driver init failed
 
     uint32_t ret_num = 0;
     esp_err_t err;

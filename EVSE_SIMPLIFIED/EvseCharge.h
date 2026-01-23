@@ -31,9 +31,12 @@ public:
 
     void startCharging();
     void stopCharging();
+    void pauseCharging();
 
     STATE_T getState() const;
     VEHICLE_STATE_T getVehicleState() const;
+    bool isVehicleConnected() const;
+    bool isPaused() const;
     float getCurrentLimit() const;
     unsigned long getElapsedTime() const;
 
@@ -57,6 +60,10 @@ public:
 
     void enableCurrentTest(bool enable);
     void setCurrentTest(float amps);
+
+    // ThrottleAlive (Safety Timeout)
+    void setThrottleAliveTimeout(unsigned long seconds);
+    void signalThrottleAlive();
 
     void onVehicleStateChange(EvseEventHandler handler);
     void onStateChange(EvseEventHandler handler);
@@ -83,6 +90,7 @@ private:
     bool currentTest = false;
     // When true the pilot was paused due to low current limit
     bool pausedAtLowLimit = false;
+    bool userPaused = false;
     // Timestamp (millis) when pilot was paused due to low current limit
     unsigned long pausedSince = 0UL;
     // SAFETY: Error lockout defaults to TRUE (fail-safe) - prevents restart after crash/reboot
@@ -90,6 +98,11 @@ private:
     bool errorLockout = true;
     bool rcmEnabled = true; // Default to enabled for safety
     bool rcmTripped = false; // Track specific RCM fault
+
+    // ThrottleAlive State
+    unsigned long throttleAliveTimeout = 0;
+    unsigned long lastThrottleAliveTime = 0;
+    unsigned long lastThrottleRampTime = 0;
 
     // RCM Periodic Test
     unsigned long lastRcmTestTime = 0;

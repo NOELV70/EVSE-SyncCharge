@@ -8,10 +8,11 @@
 #include "Pilot.h"
 #include "EvseMqttController.h"
 #include "EvseConfig.h"
+#include "OCPPHandler.h"
 
 class WebController {
 public:
-    WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, AppConfig& config);
+    WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config);
     
     void begin(const String& deviceId, bool apMode);
     void loop();
@@ -22,6 +23,7 @@ private:
     EvseCharge& evse;
     Pilot& pilot;
     EvseMqttController& mqtt;
+    OCPPHandler& ocpp;
     AppConfig& config;
     
     String deviceId;
@@ -43,6 +45,7 @@ private:
     void handleConfigRcm();
     void handleConfigMqtt();
     void handleConfigWifi();
+    void handleConfigOcpp();
     void handleConfigAuth();
     void handleSaveConfig();
     void handleCmd();

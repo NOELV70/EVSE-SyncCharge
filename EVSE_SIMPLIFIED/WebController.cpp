@@ -1,12 +1,16 @@
 #include "WebController.h"
 #include "WebPages.h"
 #include "EvseLogger.h"
+#include "OCPPHandler.h"
 #include <WiFi.h>
 #include <Update.h>
 #include <esp_system.h>
+#include <esp_task_wdt.h>
 
-WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, AppConfig& config)
-    : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), config(config), apMode(false), _rebootPending(false), _rebootTimestamp(0) {}
+WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config)
+    : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), apMode(false), _rebootPending(false), _rebootTimestamp(0) {}
+
+extern volatile bool g_otaUpdating;
 
 void WebController::begin(const String& deviceId, bool apMode) {
     this->deviceId = deviceId;
@@ -29,6 +33,7 @@ void WebController::begin(const String& deviceId, bool apMode) {
     webServer.on("/config/rcm", HTTP_GET, [this](){ handleConfigRcm(); });
     webServer.on("/config/mqtt", HTTP_GET, [this](){ handleConfigMqtt(); });
     webServer.on("/config/wifi", HTTP_GET, [this](){ handleConfigWifi(); });
+    webServer.on("/config/ocpp", HTTP_GET, [this](){ handleConfigOcpp(); });
     webServer.on("/config/auth", HTTP_GET, [this](){ handleConfigAuth(); });
     webServer.on("/saveConfig", HTTP_POST, [this](){ handleSaveConfig(); });
     webServer.on("/cmd", HTTP_GET, [this](){ handleCmd(); });
@@ -87,7 +92,7 @@ String WebController::getRebootReason() {
     switch (reason) {
         case ESP_RST_POWERON:  return "Power On";
         case ESP_RST_SW:       return "Software Reset";
-        case ESP_RST_PANIC:    return "System Crash";
+        case ESP_RST_PANIC:    return "System Panic";
         case ESP_RST_TASK_WDT: return "Task Watchdog";
         case ESP_RST_BROWNOUT: return "Brownout";
         default:               return "Other/Unknown";
@@ -103,6 +108,7 @@ String WebController::getVehicleStateText() {
 // --- Handlers ---
 
 void WebController::handleStatus() {
+    webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     String json = "{";
     float amps = evse.getCurrentLimit();
     String pwmStr = (evse.getState() == STATE_CHARGING) ? (String(evse.getPilotDuty(), 1) + "%") : "DISABLED";
@@ -112,7 +118,10 @@ void WebController::handleStatus() {
     json += "\"pvolt\":" + String(pilot.getVoltage(), 2) + ",";
     json += "\"acrel\":\"" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "\",";
     json += "\"upt\":\"" + getUptime() + "\",";
-    json += "\"rssi\":" + String(WiFi.RSSI());
+    json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+    json += "\"state\":" + String((int)evse.getState()) + ",";
+    json += "\"paused\":" + String(evse.isPaused() ? "true" : "false") + ",";
+    json += "\"conn\":" + String(evse.isVehicleConnected() ? "true" : "false");
     json += "}";
     webServer.send(200, "application/json", json);
 }
@@ -153,6 +162,7 @@ void WebController::handleRoot() {
     
     if (evse.isRcmEnabled() && evse.isRcmTripped()) {
         h += "<div style='background:#d32f2f; color:#fff; padding:15px; border-radius:6px; margin-bottom:15px; font-weight:bold; border:2px solid #ff5252; animation: blink 1s infinite;'>⚠️ CRITICAL: RCM FAULT DETECTED ⚠️<br><small>Residual Current Monitor Tripped. Disconnect Vehicle to Reset.</small></div><style>@keyframes blink{50%{opacity:0.8}}</style>";
+        h += "<div style='background:#d32f2f; color:#fff; padding:15px; border-radius:6px; margin-bottom:15px; font-weight:bold; border:2px solid #ff5252; animation: blink 1s infinite;'>CRITICAL: RCM FAULT DETECTED<br><small>Residual Current Monitor Tripped. Disconnect Vehicle to Reset.</small></div><style>@keyframes blink{50%{opacity:0.8}}</style>";
     }
 
     float amps = evse.getCurrentLimit();
@@ -161,7 +171,31 @@ void WebController::handleRoot() {
     h += "<div class='stat'><b>CURRENT LIMIT:</b> <span id='clim'>" + String(amps, 1) + "</span> A<br><b>PWM DUTY:</b> <span id='pwm'>" + pwmStr + "</span></div>";
     h += "<div class='stat'><b>PILOT VOLTAGE:</b> <span id='pvolt'>" + String(pilot.getVoltage(), 2) + "</span> V</div>";
     h += "<div class='stat'><b>AC RELAY:</b> <span id='acrel'>" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "</span></div>";
-    h += "<div style='display:flex; gap:10px; margin:20px 0;'><button class='btn' onclick=\"confirmCmd('start', this)\">START CHARGING</button><button class='btn' style='background:#ff9800; color:#fff' onclick=\"confirmCmd('pause', this)\">PAUSE CHARGING</button><button class='btn btn-red' onclick=\"quickCmd('stop', this)\">STOP CHARGING</button></div>";
+    
+    bool connected = evse.isVehicleConnected();
+    
+    // START Button: Enabled only if connected AND Idle (not charging/paused)
+    bool canStart = connected && (evse.getState() != STATE_CHARGING) && !evse.isPaused();
+    String startBtnState = canStart ? "" : " disabled style='cursor:not-allowed; background:#333; color:#777'";
+
+    h += "<div style='display:flex; gap:10px; margin:20px 0;'><button id='btn-start' class='btn'" + startBtnState + " onclick=\"confirmCmd('start', this)\">START CHARGING</button>";
+    
+    String prStyle = "background:#333; color:#777; cursor:not-allowed"; // Default Disabled
+    String prText = "PAUSE CHARGING";
+    String prAction = "pause";
+    bool prEnabled = false;
+
+    if (evse.getState() == STATE_CHARGING) {
+        prStyle = connected ? "background:#ff9800; color:#fff" : "background:#333; color:#777; cursor:not-allowed";
+        prEnabled = connected;
+    } else if (evse.isPaused()) {
+        prStyle = connected ? "background:#4caf50; color:#fff" : "background:#333; color:#777; cursor:not-allowed";
+        prText = "RESUME CHARGING";
+        prAction = "start";
+        prEnabled = connected;
+    }
+    h += "<button id='btn-pause' class='btn' style='" + prStyle + "' " + (prEnabled ? "" : "disabled") + " onclick=\"confirmCmd('" + prAction + "', this)\">" + prText + "</button>";
+    h += "<button id='btn-stop' class='btn btn-red' onclick=\"quickCmd('stop', this)\">STOP CHARGING</button></div>";
     h += "<div id='cm' class='modal'><div class='modal-content'><h2>CONFIRM ACTION</h2><p id='cmsg' style='font-size:1.1em; margin:20px 0; color:#ccc'></p><div style='display:flex; gap:10px'><button id='cyes' class='btn'>YES</button><button onclick=\"document.getElementById('cm').style.display='none'\" class='btn' style='background:#444; color:#fff'>NO</button></div></div></div>";
     h += "<script>function quickCmd(a,b){let o=b.innerText;b.innerText='...';fetch('/cmd?do='+a+'&ajax=1').finally(()=>setTimeout(()=>b.innerText=o,500));} function confirmCmd(a, b) {let m = {'start': 'Resume charging session?','pause': 'Pause charging (vehicle can resume later)?','stop': 'Fully stop charging and disable pilot signal?'}[a]; document.getElementById('cmsg').innerText = m; document.getElementById('cm').style.display = 'block'; document.getElementById('cyes').onclick = function() { document.getElementById('cm').style.display = 'none'; quickCmd(a,b); }; }</script>";
 
@@ -193,6 +227,7 @@ void WebController::handleSettingsMenu() {
     h += "<a href='/config/rcm' class='btn'>RCD SETTINGS</a>";
     h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a>";
     h += "<a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
+    h += "<a href='/config/ocpp' class='btn'>OCPP CONFIGURATION</a>";
     h += "<a href='/config/auth' class='btn btn-red'>ADMIN SECURITY</a>";
     h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a></div>";
     h += "<a href='/' class='btn' style='background:#444; color:#fff;'>CLOSE</a>";
@@ -206,6 +241,7 @@ void WebController::handleConfigEvse() {
     h += "<label>Max Current (A)<input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
     h += "<label>Allow Charging < 6A?<select name='allowlow'><option value='0' "+String(!config.allowBelow6AmpCharging?"selected":"")+">No (Strict J1772)</option><option value='1' "+String(config.allowBelow6AmpCharging?"selected":"")+">Yes (Solar/Throttle)</option></select></label>";
     h += "<label>Resume delay (ms)<input name='lldelay' type='number' value='"+String(config.lowLimitResumeDelayMs)+"'></label>";
+    h += "<label>Solar / External Throttle Timeout (sec)<br><small>Throttle to 6A if no update (MQTT/OCPP) (0=Disable)</small><input name='solto' type='number' value='"+String(config.solarStopTimeout)+"'></label>";
     h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form>";
     h += "<a href='/test' class='btn' style='background:#673ab7; color:#fff; margin-top:15px;'>PWM TEST LAB</a>";
     h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
@@ -216,19 +252,45 @@ void WebController::handleConfigRcm() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>RCD Config</title>") + dashStyle + "</head><body><div class='container'><h1>RCD Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<div class='stat' style='border-left-color:#ff5252'><b>Residual Current Monitor</b><br>Disabling this safety feature is NOT recommended.</div>";
+    h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Changing these settings will trigger a reboot.</div>";
     h += "<label>RCM Protection<select name='rcmen'><option value='1' "+String(config.rcmEnabled?"selected":"")+">ENABLED (Safe)</option><option value='0' "+String(!config.rcmEnabled?"selected":"")+">DISABLED (Unsafe)</option></select></label>";
-    h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
+    h += "<button class='btn' type='submit'>SAVE & REBOOT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
 void WebController::handleConfigMqtt() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>MQTT Config</title>") + dashStyle + "</head><body><div class='container'><h1>MQTT Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Changing these settings will trigger a reboot.</div>";
+    h += "<label>Enable MQTT<select name='mqen' id='mqen' onchange='toggleMqtt()'><option value='0' "+String(!config.mqttEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttEnabled?"selected":"")+">Enabled</option></select></label>";
+    h += "<div id='mqfields'>";
     h += "<label>Host<input name='mqhost' value='"+config.mqttHost+"'></label><label>Port<input name='mqport' type='number' value='"+String(config.mqttPort)+"'></label>";
     h += "<label>User<input name='mquser' value='"+config.mqttUser+"'></label><label>Pass<input name='mqpass' type='password' value='"+config.mqttPass+"'></label>";
     h += "<label>Safety Failsafe<select name='mqsafe'><option value='0' "+String(!config.mqttFailsafeEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttFailsafeEnabled?"selected":"")+">Stop Charge on Loss</option></select></label>";
     h += "<label>Failsafe Timeout (sec)<input name='mqsafet' type='number' value='"+String(config.mqttFailsafeTimeout)+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
+    h += "</div>";
+    h += "<button class='btn' type='submit'>SAVE & REBOOT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a>";
+    h += "<script>function toggleMqtt(){var e=document.getElementById('mqen').value=='1';var f=document.getElementById('mqfields');var i=f.getElementsByTagName('input');var s=f.getElementsByTagName('select');for(var k=0;k<i.length;k++)i[k].disabled=!e;for(var k=0;k<s.length;k++)s[k].disabled=!e;f.style.opacity=e?'1':'0.5';}toggleMqtt();</script></div></body></html>";
+    webServer.send(200, "text/html", h);
+}
+
+void WebController::handleConfigOcpp() {
+    if (!checkAuth()) return;
+    String h = String("<!DOCTYPE html><html><head><title>OCPP Config</title>") + dashStyle + "</head><body><div class='container'><h1>OCPP Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Changing these settings will trigger a reboot.</div>";
+    h += "<label>Enable OCPP<select name='ocppen' id='ocppen' onchange='toggleOcpp()'><option value='0' "+String(!config.ocppEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.ocppEnabled?"selected":"")+">Enabled</option></select></label>";
+    h += "<div id='ofields'>";
+    h += "<label>Server Host<input name='ohost' value='"+config.ocppHost+"'></label>";
+    h += "<label>Server Port<input name='oport' type='number' value='"+String(config.ocppPort)+"'></label>";
+    h += "<label>URL Path (e.g. /ocpp/1.6)<input name='ourl' value='"+config.ocppUrl+"'></label>";
+    h += "<label>Use TLS (WSS)<select name='otls'><option value='0' "+String(!config.ocppUseTls?"selected":"")+">No (WS)</option><option value='1' "+String(config.ocppUseTls?"selected":"")+">Yes (WSS)</option></select></label>";
+    h += "<label>Auth Key / Tag<input name='okey' value='"+config.ocppAuthKey+"'></label>";
+    h += "<label>Heartbeat (sec)<input name='ohb' type='number' value='"+String(config.ocppHeartbeatInterval)+"'></label>";
+    h += "<label>Reconnect Interval (ms)<input name='orec' type='number' value='"+String(config.ocppReconnectInterval)+"'></label>";
+    h += "<label>Connection Timeout (ms)<input name='oto' type='number' value='"+String(config.ocppConnTimeout)+"'></label>";
+    h += "</div>";
+    h += "<button class='btn' type='submit'>SAVE & REBOOT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a>";
+    h += "<script>function toggleOcpp(){var e=document.getElementById('ocppen').value=='1';var f=document.getElementById('ofields');var i=f.getElementsByTagName('input');var s=f.getElementsByTagName('select');for(var k=0;k<i.length;k++)i[k].disabled=!e;for(var k=0;k<s.length;k++)s[k].disabled=!e;f.style.opacity=e?'1':'0.5';}toggleOcpp();</script></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -251,7 +313,7 @@ void WebController::handleConfigWifi() {
     h += "<label>Static IP<input name='ip' id='ip' value='"+dispIp+"'></label>";
     h += "<label>Gateway<input name='gw' id='gw' value='"+dispGw+"'></label>";
     h += "<label>Subnet<input name='sn' id='sn' value='"+dispSn+"'></label>";
-    h += "<button class='btn' type='submit'>SAVE & RECONNECT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div>";
+    h += "<button class='btn' type='submit'>SAVE & REBOOT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div>";
     h += String(dynamicScript);
     h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #004d40';};c.appendChild(e);});});}</script>";
     h += "</body></html>";
@@ -278,13 +340,18 @@ void WebController::handleConfigAuth() {
 
 void WebController::handleSaveConfig() {
     if (!checkAuth() && !apMode) return;
+    bool rebootRequired = false;
+
     if (webServer.hasArg("maxcur")) {
         float newMax = webServer.arg("maxcur").toFloat();
         config.maxCurrent = constrain(newMax, 6.0f, 80.0f);
         config.allowBelow6AmpCharging = (webServer.arg("allowlow") == "1");
         config.lowLimitResumeDelayMs = webServer.arg("lldelay").toInt();
+        config.solarStopTimeout = webServer.arg("solto").toInt();
     }
     if (webServer.hasArg("mqhost")) {
+        rebootRequired = true;
+        config.mqttEnabled = (webServer.arg("mqen") == "1");
         config.mqttHost = webServer.arg("mqhost"); 
         config.mqttPort = webServer.arg("mqport").toInt();
         config.mqttUser = webServer.arg("mquser"); 
@@ -292,9 +359,25 @@ void WebController::handleSaveConfig() {
         config.mqttFailsafeEnabled = (webServer.arg("mqsafe") == "1");
         config.mqttFailsafeTimeout = webServer.arg("mqsafet").toInt();
     }
-    if (webServer.hasArg("rcmen")) config.rcmEnabled = (webServer.arg("rcmen") == "1");
+    if (webServer.hasArg("ohost")) {
+        rebootRequired = true;
+        config.ocppEnabled = (webServer.arg("ocppen") == "1");
+        config.ocppHost = webServer.arg("ohost");
+        config.ocppPort = webServer.arg("oport").toInt();
+        config.ocppUrl = webServer.arg("ourl");
+        config.ocppUseTls = (webServer.arg("otls") == "1");
+        config.ocppAuthKey = webServer.arg("okey");
+        config.ocppHeartbeatInterval = webServer.arg("ohb").toInt();
+        config.ocppReconnectInterval = webServer.arg("orec").toInt();
+        config.ocppConnTimeout = webServer.arg("oto").toInt();
+    }
+    if (webServer.hasArg("rcmen")) {
+        config.rcmEnabled = (webServer.arg("rcmen") == "1");
+        rebootRequired = true;
+    }
     if (webServer.hasArg("wuser")) { config.wwwUser = webServer.arg("wuser"); config.wwwPass = webServer.arg("wpass"); }
     if (webServer.hasArg("ssid")) { 
+        rebootRequired = true;
         config.wifiSsid = webServer.arg("ssid"); config.wifiPass = webServer.arg("pass"); 
         if(webServer.hasArg("mode")) {
             config.useStatic = (webServer.arg("mode") == "1");
@@ -303,10 +386,15 @@ void WebController::handleSaveConfig() {
     }
     saveConfig(config);
     mqtt.setFailsafeConfig(config.mqttFailsafeEnabled, config.mqttFailsafeTimeout);
+    evse.setThrottleAliveTimeout(config.solarStopTimeout);
+    ocpp.setConfig(config.ocppEnabled, config.ocppHost, config.ocppPort, config.ocppUrl, config.ocppUseTls, config.ocppAuthKey, config.ocppHeartbeatInterval, config.ocppReconnectInterval);
     evse.setRcmEnabled(config.rcmEnabled);
 
-    if (apMode) {
-        webServer.send(200, "text/plain", "Rebooting..."); requestReboot();
+    if (apMode || rebootRequired) {
+        String h = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='15;url=/'><meta name='viewport' content='width=device-width'><style>body{background:#121212;color:#ffcc00;font-family:sans-serif;text-align:center;padding:50px;} .btn{background:#ffcc00;color:#121212;padding:10px 20px;text-decoration:none;border-radius:5px;font-weight:bold;display:inline-block;margin-top:20px;}</style></head><body>";
+        h += "<h1>Settings Saved</h1><p>System is rebooting to apply changes...</p><a href='/' class='btn'>RETURN HOME</a></body></html>";
+        webServer.send(200, "text/html", h);
+        requestReboot();
     } else {
         webServer.sendHeader("Location", "/settings", true); webServer.send(302, "text/plain", "");
     }
@@ -317,7 +405,7 @@ void WebController::handleCmd() {
     String op = webServer.arg("do");
     logger.infof("[WEB] Command received: %s", op.c_str());
     if (op == "start") evse.startCharging();
-    else if (op == "pause") evse.stopCharging();
+    else if (op == "pause") evse.pauseCharging();
     else if (op == "stop") { evse.stopCharging(); pilot.disable(); }
     if (webServer.hasArg("ajax")) webServer.send(200, "text/plain", "OK");
     else { webServer.sendHeader("Location", "/", true); webServer.send(302, "text/plain", ""); }
@@ -325,8 +413,8 @@ void WebController::handleCmd() {
 
 void WebController::handleTestMode() {
     if (!checkAuth()) return;
-    int maxDuty = (int)pilot.ampsToDuty(config.maxCurrent);
-    int initVal = (50 > maxDuty) ? maxDuty : 50;
+    int maxDuty = (int)pilot.ampsToDuty(MAX_CURRENT);
+    int initVal = 50;
     String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>PWM Test Lab</title>" + String(dashStyle) + "</head><body><div class='container'>";
     h += "<h1>PWM TEST LAB</h1><span class='version-tag'>WARNING: FORCE PWM</span>";
     h += "<div class='stat' style='border-left-color:#673ab7'>PILOT VOLTAGE: <span id='pv'>--</span> V<br>CALC AMPS: <span id='ca'>--</span> A</div>";
@@ -348,7 +436,6 @@ void WebController::handleTestCmd() {
     else if (act == "pwm") {
         float duty = webServer.arg("val").toFloat();
         float amps = pilot.dutyToAmps(duty);
-        if (amps > config.maxCurrent) amps = config.maxCurrent;
         evse.setCurrentTest(amps);
         webServer.send(200, "text/plain", String(amps));
     } else webServer.send(400, "text/plain", "Bad Request");
@@ -407,6 +494,7 @@ void WebController::handleUpdate() {
 }
 
 void WebController::handleDoUpdate() {
+    logger.info("[OTA] Upload complete, sending response");
     String h = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='15;url=/'><meta name='viewport' content='width=device-width'><style>body{background:#121212;color:#ffcc00;font-family:sans-serif;text-align:center;padding:50px;} .btn{background:#ffcc00;color:#121212;padding:10px 20px;text-decoration:none;border-radius:5px;font-weight:bold;display:inline-block;margin-top:20px;}</style></head><body>";
     if (Update.hasError()) h += "<h1>Update Failed</h1><p>Please try again.</p><a href='/update' class='btn'>TRY AGAIN</a> <a href='/' class='btn'>HOME</a>";
     else h += "<h1>Update Successful!</h1><p>Device is rebooting... You will be redirected shortly.</p><a href='/' class='btn'>RETURN HOME</a>";
@@ -416,8 +504,38 @@ void WebController::handleDoUpdate() {
 }
 
 void WebController::handleUpdateUpload() {
+    esp_task_wdt_reset(); // Keep watchdog happy during long uploads
     HTTPUpload& u = webServer.upload();
-    if(u.status == UPLOAD_FILE_START){ if(!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial); } 
-    else if(u.status == UPLOAD_FILE_WRITE){ if(Update.write(u.buf, u.currentSize) != u.currentSize) Update.printError(Serial); } 
-    else if(u.status == UPLOAD_FILE_END){ if(!Update.end(true)) Update.printError(Serial); }
+    if(u.status == UPLOAD_FILE_START){ 
+        logger.info("[OTA] Upload Start");
+
+        g_otaUpdating = true;
+        delay(100); // Give the high-priority EVSE task time to clean up and exit
+        logger.info("[OTA] EVSE Task Stopped");
+
+        logger.info("[OTA] Stopping Charge...");
+        evse.stopCharging();
+        logger.info("[OTA] Disabling Pilot...");
+        pilot.stop();
+        logger.infof("[OTA] Starting Update for file: %s", u.filename.c_str());
+        if(!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            Update.printError(Serial);
+            logger.error("[OTA] Update.begin failed");
+        } else {
+            logger.info("[OTA] Update.begin OK");
+        }
+    } 
+    else if(u.status == UPLOAD_FILE_WRITE){ 
+        if(Update.write(u.buf, u.currentSize) != u.currentSize) { Update.printError(Serial); logger.error("[OTA] Write failed"); }
+    } 
+    else if(u.status == UPLOAD_FILE_END){ 
+        logger.infof("[OTA] Upload End: %u bytes", u.totalSize);
+        esp_task_wdt_reset(); // Ensure WDT is fed before final verification
+        if(Update.end(true)) {
+            logger.info("[OTA] Update Successful");
+        } else {
+            Update.printError(Serial);
+            logger.error("[OTA] Update.end failed");
+        }
+    }
 }

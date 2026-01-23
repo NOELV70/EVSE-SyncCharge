@@ -1,6 +1,8 @@
 # Evse_Simplified
 
 Evse_Simplified: The Industrial-Grade ESP32 Firmware.
+
+
 A real-time link between grid and EV, delivering millisecond-level signaling, OTA firmware updates, and open IoT integration.
 
 <img width="577" height="813" alt="image" src="https://github.com/user-attachments/assets/12d64285-cb6b-4eac-becc-d822a734c904" />

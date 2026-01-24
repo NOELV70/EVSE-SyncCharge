@@ -1,0 +1,209 @@
+#include "OCPPHandler.h"
+#include "EvseCharge.h"
+#include "Pilot.h"
+#include "EvseLogger.h"
+
+OCPPHandler::OCPPHandler(EvseCharge& evseCharge, Pilot& pilotRef) 
+    : evse(evseCharge), pilot(pilotRef) 
+{
+    // Initialize connector defaults
+    connector.status = AVAILABLE;
+    connector.currentLimitA = 0.0f;
+    connector.measuredCurrentA = 0.0f;
+    // Default to 230V so power calculations aren't zero if we lack a voltage sensor
+    connector.measuredVoltageV = 230.0f; 
+    connector.measuredPowerW = 0.0f;
+    connector.measuredEnergyWh = 0.0f;
+}
+
+void OCPPHandler::setConfig(bool enabled, String host, uint16_t port, String url, bool useTls, String authKey, int heartbeat, int reconnect) {
+    this->enabled = enabled;
+    this->serverHost = host;
+    this->serverPort = port;
+    this->serverUrl = url;
+    this->useTls = useTls;
+    this->authKey = authKey;
+    this->heartbeatInterval = heartbeat * 1000UL;
+    this->reconnectInterval = reconnect;
+    webSocket.setReconnectInterval(this->reconnectInterval);
+}
+
+void OCPPHandler::begin() {
+    if (!enabled) return;
+    
+    logger.infof("[OCPP] Connecting to %s:%d%s (%s)", serverHost.c_str(), serverPort, serverUrl.c_str(), useTls ? "WSS" : "WS");
+    
+    if (useTls) {
+        webSocket.beginSSL(serverHost.c_str(), serverPort, serverUrl.c_str(), "", "ocpp1.6");
+    } else {
+        webSocket.begin(serverHost.c_str(), serverPort, serverUrl.c_str(), "ocpp1.6");
+    }
+    webSocket.onEvent(std::bind(&OCPPHandler::wsEvent, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+    webSocket.setReconnectInterval(reconnectInterval);
+}
+
+void OCPPHandler::loop() {
+    if (enabled) webSocket.loop();
+
+    if (connected && millis() - lastHeartbeat > heartbeatInterval) {
+        sendHeartbeat();
+        lastHeartbeat = millis();
+    }
+}
+
+float OCPPHandler::getCurrentLimit() {
+    return evse.getCurrentLimit();
+}
+
+ConnectorStatus OCPPHandler::getStatus() {
+    STATE_T s = evse.getState();
+    if (s == STATE_CHARGING) return CHARGING;
+
+    VEHICLE_STATE_T v = evse.getVehicleState();
+    if (v != VEHICLE_NOT_CONNECTED && v != VEHICLE_ERROR && v != VEHICLE_NO_POWER) {
+        return SUSPENDED;
+    }
+    return AVAILABLE;
+}
+
+void OCPPHandler::setConnectorData(float current, float voltage, float power, float energy) {
+    // These values come FROM the EVSE sensors and will be sent TO the OCPP server
+    connector.measuredCurrentA = current;
+    connector.measuredVoltageV = voltage;
+    connector.measuredPowerW = power;
+    connector.measuredEnergyWh = energy;
+}
+
+void OCPPHandler::wsEvent(WStype_t type, uint8_t* payload, size_t length) {
+    switch (type) {
+        case WStype_DISCONNECTED:
+            logger.warn("[OCPP] Disconnected!");
+            connected = false;
+            break;
+        case WStype_CONNECTED:
+            logger.info("[OCPP] Connected!");
+            connected = true;
+            sendBootNotification();
+            break;
+        case WStype_TEXT:
+            onMessage(String((char*)payload));
+            break;
+        default:
+            break;
+    }
+}
+
+void OCPPHandler::onMessage(const String& rawMessage) {
+    logger.debugf("[OCPP] Rx: %s", rawMessage.c_str());
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, rawMessage);
+
+    if (error) {
+        logger.errorf("[OCPP] JSON Error: %s", error.c_str());
+        return;
+    }
+
+    // OCPP Message Type 2 = CALL
+    if (doc[0] != 2) return; 
+
+    String messageId = doc[1];
+    String action = doc[2];
+    JsonObject payload = doc[3];
+
+    if (action == "SetChargingProfile") {
+        handleSetChargingProfile(messageId, payload);
+    } else if (action == "RemoteStartTransaction") {
+        handleRemoteStartTransaction(messageId, payload);
+    } else if (action == "RemoteStopTransaction") {
+        handleRemoteStopTransaction(messageId, payload);
+    } else {
+        String err = sendError(messageId, "NotImplemented", "Action not supported");
+        webSocket.sendTXT(err);
+    }
+}
+
+void OCPPHandler::handleSetChargingProfile(const String& messageId, JsonObject payload) {
+    // Simplified parsing for TxDefaultProfile
+    if (payload["csChargingProfiles"].is<JsonObject>()) {
+        JsonObject cp = payload["csChargingProfiles"];
+        if (cp["chargingSchedule"].is<JsonObject>()) {
+            JsonObject cs = cp["chargingSchedule"];
+            if (cs["chargingSchedulePeriod"].is<JsonArray>()) {
+                JsonArray periods = cs["chargingSchedulePeriod"];
+                if (periods.size() > 0) {
+                    float limit = periods[0]["limit"];
+                    connector.currentLimitA = limit;
+                    evse.setCurrentLimit(limit);
+                    evse.signalThrottleAlive();
+                    logger.infof("[OCPP] Set limit to %.1f A", limit);
+                }
+            }
+        }
+    }
+    String msg = sendAccepted(messageId);
+    webSocket.sendTXT(msg);
+}
+
+void OCPPHandler::handleRemoteStartTransaction(const String& messageId, JsonObject payload) {
+    // In a real scenario, validate idTag here
+    evse.startCharging();
+    evse.signalThrottleAlive();
+    logger.info("[OCPP] Remote Start");
+    String msg = sendAccepted(messageId);
+    webSocket.sendTXT(msg);
+}
+
+void OCPPHandler::handleRemoteStopTransaction(const String& messageId, JsonObject payload) {
+    evse.stopCharging();
+    logger.info("[OCPP] Remote Stop");
+    String msg = sendAccepted(messageId);
+    webSocket.sendTXT(msg);
+}
+
+void OCPPHandler::sendBootNotification() {
+    // [2, "id", "BootNotification", { "chargePointVendor": "...", "chargePointModel": "..." }]
+    JsonDocument doc;
+    String msgId = String(millis());
+    doc.add(2);
+    doc.add(msgId);
+    doc.add("BootNotification");
+    JsonObject payload = doc.add<JsonObject>();
+    payload["chargePointVendor"] = "EvseSimplified";
+    payload["chargePointModel"] = "ESP32-EVSE";
+    
+    String output;
+    serializeJson(doc, output);
+    webSocket.sendTXT(output);
+}
+
+void OCPPHandler::sendHeartbeat() {
+    JsonDocument doc;
+    String msgId = String(millis());
+    doc.add(2);
+    doc.add(msgId);
+    doc.add("Heartbeat");
+    doc.add<JsonObject>(); // Empty payload
+    
+    String output;
+    serializeJson(doc, output);
+    webSocket.sendTXT(output);
+}
+
+void OCPPHandler::sendStatusNotification() {
+    // Placeholder
+}
+
+void OCPPHandler::sendMeterValues() {
+    // Placeholder
+}
+
+String OCPPHandler::sendAccepted(const String& messageId) {
+    // [3, "id", {}]
+    return "[3, \"" + messageId + "\", {}]";
+}
+
+String OCPPHandler::sendError(const String& messageId, const char* code, const char* desc) {
+    // [4, "id", "code", "desc", {}]
+    return "[4, \"" + messageId + "\", \"" + code + "\", \"" + desc + "\", {}]";
+}

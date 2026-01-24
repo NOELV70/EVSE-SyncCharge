@@ -1,3 +1,14 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of the WebController class. Handles the embedded web server,
+ *              captive portal, and all HTTP API endpoints for configuration and control.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 #include "WebController.h"
 #include "WebPages.h"
 #include "EvseLogger.h"
@@ -6,6 +17,7 @@
 #include <Update.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
+#include "RGBWL2812.h"
 
 WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config)
     : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), apMode(false), _rebootPending(false), _rebootTimestamp(0) {}
@@ -34,6 +46,7 @@ void WebController::begin(const String& deviceId, bool apMode) {
     webServer.on("/config/mqtt", HTTP_GET, [this](){ handleConfigMqtt(); });
     webServer.on("/config/wifi", HTTP_GET, [this](){ handleConfigWifi(); });
     webServer.on("/config/ocpp", HTTP_GET, [this](){ handleConfigOcpp(); });
+    webServer.on("/config/led", HTTP_GET, [this](){ handleConfigLed(); });
     webServer.on("/config/auth", HTTP_GET, [this](){ handleConfigAuth(); });
     webServer.on("/saveConfig", HTTP_POST, [this](){ handleSaveConfig(); });
     webServer.on("/cmd", HTTP_GET, [this](){ handleCmd(); });
@@ -228,6 +241,7 @@ void WebController::handleSettingsMenu() {
     h += "<a href='/config/wifi' class='btn'>WIFI & NETWORK</a>";
     h += "<a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
     h += "<a href='/config/ocpp' class='btn'>OCPP CONFIGURATION</a>";
+    h += "<a href='/config/led' class='btn'>LED CONFIGURATION</a>";
     h += "<a href='/config/auth' class='btn btn-red'>ADMIN SECURITY</a>";
     h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a></div>";
     h += "<a href='/' class='btn' style='background:#444; color:#fff;'>CLOSE</a>";
@@ -291,6 +305,43 @@ void WebController::handleConfigOcpp() {
     h += "</div>";
     h += "<button class='btn' type='submit'>SAVE & REBOOT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a>";
     h += "<script>function toggleOcpp(){var e=document.getElementById('ocppen').value=='1';var f=document.getElementById('ofields');var i=f.getElementsByTagName('input');var s=f.getElementsByTagName('select');for(var k=0;k<i.length;k++)i[k].disabled=!e;for(var k=0;k<s.length;k++)s[k].disabled=!e;f.style.opacity=e?'1':'0.5';}toggleOcpp();</script></div></body></html>";
+    webServer.send(200, "text/html", h);
+}
+
+void WebController::handleConfigLed() {
+    if (!checkAuth()) return;
+    LedSettings ls = led.getConfig();
+    
+    String h = String("<!DOCTYPE html><html><head><title>LED Config</title>") + dashStyle + "</head><body><div class='container'><h1>LED Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    
+    h += "<label>Enable LEDs<select name='len' id='len' onchange='toggleLed()'><option value='0' "+String(!ls.enabled?"selected":"")+">Disabled</option><option value='1' "+String(ls.enabled?"selected":"")+">Enabled</option></select></label>";
+    h += "<div id='lfields'>";
+    h += "<label>Number of LEDs<input name='lnum' type='number' value='"+String(ls.numLeds)+"'></label>";
+    
+    auto addStateRow = [&](String label, String pfx, LedStateSetting s) {
+        h += "<div style='background:#222; padding:10px; margin-top:10px; border-radius:4px;'><b>"+label+"</b><br>";
+        h += "<div style='display:flex; gap:10px;'><select name='"+pfx+"_c'>";
+        const char* cols[] = {"OFF","RED","GREEN","BLUE","YELLOW","CYAN","MAGENTA","WHITE"};
+        for(int i=0;i<8;i++) h += "<option value='"+String(i)+"' "+String(s.color==i?"selected":"")+">"+cols[i]+"</option>";
+        h += "</select><select name='"+pfx+"_e'>";
+        const char* effs[] = {"STEADY","SOLID","BLINK SLOW","BLINK FAST","BREATH","RAINBOW","KNIGHT RIDER","CHASE"};
+        for(int i=0;i<8;i++) h += "<option value='"+String(i)+"' "+String(s.effect==i?"selected":"")+">"+effs[i]+"</option>";
+        h += "</select></div></div>";
+    };
+
+    addStateRow("Standby (Ready)", "stby", ls.stateStandby);
+    addStateRow("Vehicle Connected", "conn", ls.stateConnected);
+    addStateRow("Charging", "chg", ls.stateCharging);
+    addStateRow("Error / Fault", "err", ls.stateError);
+    addStateRow("WiFi Config / AP", "wifi", ls.stateWifi);
+    addStateRow("Boot / Startup", "boot", ls.stateBoot);
+    addStateRow("Solar Idle (<6A)", "solidle", ls.stateSolarIdle);
+
+    h += "</div>";
+    h += "<button type='button' class='btn' style='background:#673ab7; margin-top:15px; margin-bottom:15px;' onclick=\"fetch('/cmd?do=ledtest&ajax=1')\">TEST LED SEQUENCE (30s)</button>";
+    h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a>";
+    h += "<script>function toggleLed(){var e=document.getElementById('len').value=='1';var f=document.getElementById('lfields');var i=f.getElementsByTagName('input');var s=f.getElementsByTagName('select');for(var k=0;k<i.length;k++)i[k].disabled=!e;for(var k=0;k<s.length;k++)s[k].disabled=!e;f.style.opacity=e?'1':'0.5';}toggleLed();</script></div></body></html>";
+    
     webServer.send(200, "text/html", h);
 }
 
@@ -371,6 +422,24 @@ void WebController::handleSaveConfig() {
         config.ocppReconnectInterval = webServer.arg("orec").toInt();
         config.ocppConnTimeout = webServer.arg("oto").toInt();
     }
+    if (webServer.hasArg("len")) {
+        LedSettings ls;
+        ls.enabled = (webServer.arg("len") == "1");
+        ls.numLeds = webServer.arg("lnum").toInt();
+        
+        auto getSt = [&](String pfx) -> LedStateSetting {
+            return {(LedColor)webServer.arg(pfx+"_c").toInt(), (LedEffect)webServer.arg(pfx+"_e").toInt()};
+        };
+        ls.stateStandby = getSt("stby");
+        ls.stateConnected = getSt("conn");
+        ls.stateCharging = getSt("chg");
+        ls.stateError = getSt("err");
+        ls.stateWifi = getSt("wifi");
+        ls.stateBoot = getSt("boot");
+        ls.stateSolarIdle = getSt("solidle");
+        
+        led.updateConfig(ls);
+    }
     if (webServer.hasArg("rcmen")) {
         config.rcmEnabled = (webServer.arg("rcmen") == "1");
         rebootRequired = true;
@@ -407,6 +476,7 @@ void WebController::handleCmd() {
     if (op == "start") evse.startCharging();
     else if (op == "pause") evse.pauseCharging();
     else if (op == "stop") { evse.stopCharging(); pilot.disable(); }
+    else if (op == "ledtest") { led.startTestSequence(); }
     if (webServer.hasArg("ajax")) webServer.send(200, "text/plain", "OK");
     else { webServer.sendHeader("Location", "/", true); webServer.send(302, "text/plain", ""); }
 }

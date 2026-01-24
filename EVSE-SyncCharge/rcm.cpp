@@ -1,7 +1,12 @@
-/*
- * @file rcm.cpp
- * @brief Residual Current Monitor driver
- * @details Adapted for Arduino framework with EvseLogger integration
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of the Residual Current Monitor (RCM) driver. Handles
+ *              interrupt-based fault detection and periodic self-testing logic.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
  */
 
 #include "Rcm.h"

@@ -1,16 +1,13 @@
-/*****************************************************************************
- * @file Relay.cpp
- * @brief Relay driver implementation with debounce/timed switching.
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of the Relay driver. Provides non-blocking control of the
+ *              main contactor with anti-chatter hysteresis and safety delays.
  *
- * @details
- * Implements a non-blocking relay control helper that enforces a minimum
- * switching delay to prevent rapid toggling of the physical relay.
- *
- * @copyright (C) Noel Vellemans 2026
- * @license GNU General Public License v2.0 (GPLv2)
- * @version 1.0.0
- * @date 2026-01-02
- ******************************************************************************/
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
 
 #include "Relay.h"
 

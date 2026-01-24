@@ -1,3 +1,14 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Header file for the OCPPHandler class. Defines the OCPP interface,
+ *              connector status structures, and WebSocket client configuration.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 #pragma once
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>

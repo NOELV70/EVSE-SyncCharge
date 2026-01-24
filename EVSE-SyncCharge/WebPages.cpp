@@ -1,7 +1,13 @@
-/*****************************************************************************
- * @file WebPages.cpp
- * @brief Implementation of HTML content strings.
- ******************************************************************************/
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Storage for HTML, CSS, and JavaScript content strings used by the
+ *              WebController to serve the embedded web interface.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
 
 #include "WebPages.h"
 

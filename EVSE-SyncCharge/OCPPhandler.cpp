@@ -1,3 +1,15 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of the OCPPHandler class. Manages the WebSocket connection
+ *              to the OCPP backend, handles JSON serialization/deserialization, and
+ *              processes OCPP 1.6J messages.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 #include "OCPPHandler.h"
 #include "EvseCharge.h"
 #include "Pilot.h"

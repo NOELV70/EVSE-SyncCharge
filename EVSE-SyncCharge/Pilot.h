@@ -1,7 +1,13 @@
-/*****************************************************************************
- * @file Pilot.h
- * @brief Pilot driver API and vehicle state helpers.
- ******************************************************************************/
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Header file for the Pilot driver. Defines J1772 constants, PWM configuration,
+ *              ADC settings, and the Pilot class interface for vehicle state detection.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
 
 #ifndef PILOT_H_
 #define PILOT_H_

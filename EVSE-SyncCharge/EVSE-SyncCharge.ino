@@ -1,5 +1,5 @@
 /* =========================================================================================
- * Project:     Evse_Simplified 
+ * Project:     Evse-SyncCharge 
  * Description: A mission-critical, WiFi-enabled Electric Vehicle Supply Equipment (EVSE)
  *              controller built on the dual-core ESP32 platform.
  *
@@ -58,6 +58,7 @@
 #include "EvseConfig.h"
 #include "WebController.h"
 #include "OCPPHandler.h"
+#include "RGBWL2812.h"
 
 #define BAUD_RATE 115200
 #define WDT_TIMEOUT 8 
@@ -83,6 +84,27 @@ static void applyMqttConfig() {
     }
 }
 
+void updateLedState() {
+    // Priority 1: Error States
+    if (evse.getVehicleState() == VEHICLE_ERROR || evse.getVehicleState() == VEHICLE_NO_POWER) {
+        led.setState(LED_ERROR);
+        return;
+    }
+    // Priority 2: WiFi Setup
+    if (isFallbackApMode) {
+        led.setState(LED_WIFI_CONFIG);
+        return;
+    }
+    // Priority 3: Solar Throttling (Low Current)
+    if (evse.getCurrentLimit() < 6.0f && evse.isVehicleConnected()) {
+        led.setState(LED_SOLAR_IDLE);
+        return;
+    }
+    // Priority 4: Standard States
+    if (evse.getState() == STATE_CHARGING) led.setState(LED_CHARGING);
+    else if (evse.getVehicleState() == VEHICLE_CONNECTED) led.setState(LED_CONNECTED);
+    else led.setState(LED_READY);
+}
 
 // --- DUAL CORE TASK ---
 // Run EVSE logic on a dedicated high-priority task to prevent WiFi/Web lag
@@ -115,6 +137,8 @@ void evseLoopTask(void* parameter) {
         } else {
             vTaskDelay(pdMS_TO_TICKS(50));
         }
+        updateLedState();
+        led.loop();
     }
 }
 
@@ -123,6 +147,8 @@ void setup() {
     delay(1000);
 
     evse.preinit_hard(); 
+    led.begin();
+    led.setState(LED_BOOT);
 
     esp_task_wdt_config_t twdt_config = {
         .timeout_ms = WDT_TIMEOUT * 1000,
@@ -191,15 +217,25 @@ void setup() {
         }
         WiFi.begin(config.wifiSsid.c_str(), config.wifiPass.c_str());
         int retry = 0;
-        while (WiFi.status() != WL_CONNECTED && retry < 360) { delay(500); retry++; esp_task_wdt_reset(); }
+        while (WiFi.status() != WL_CONNECTED && retry < 360) { 
+            unsigned long startWait = millis();
+            while (millis() - startWait < 500) {
+                led.loop();
+                delay(5);
+            }
+            retry++; 
+            esp_task_wdt_reset(); 
+        }
 
         if (WiFi.status() != WL_CONNECTED) {
             webController.begin(deviceId, true);
             isFallbackApMode = true;
+            led.setState(LED_WIFI_CONFIG);
         } else {
             logger.info("[NET] WiFi Connected!");
             logger.infof("[NET] SSID     : %s", config.wifiSsid.c_str());
             logger.infof("[NET] IP ADDR  : %s", WiFi.localIP().toString().c_str());
+            led.setState(LED_READY);
             logger.infof("[NET] MAC ADDR : %s", WiFi.macAddress().c_str());
             logger.infof("[NET] HOSTNAME : %s", deviceId.c_str());
             applyMqttConfig();

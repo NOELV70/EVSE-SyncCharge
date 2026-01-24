@@ -1,3 +1,14 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of the Pilot driver. Handles PWM generation for the Control
+ *              Pilot signal and ADC sampling to detect vehicle states (J1772).
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 #include "hal/adc_types.h"
 #include <Arduino.h>
 #include <cstring>
@@ -117,13 +128,15 @@ void Pilot::begin()
 
 void Pilot::standby()
 {
+    // Pre-set GPIO to HIGH to prevent glitch to 0V (VEHICLE_NO_POWER) during detach
+    digitalWrite(PIN_PILOT_PWM_OUT, HIGH);
+    pinMode(PIN_PILOT_PWM_OUT, OUTPUT);
+
     if(pwmAttached) {
         logger.debug("[PILOT] Detaching PWM for Standby (Static HIGH)");
         pwmAttached = false;
         ledcDetach(PIN_PILOT_PWM_OUT);
     }    
-    pinMode(PIN_PILOT_PWM_OUT, OUTPUT);
-    digitalWrite(PIN_PILOT_PWM_OUT, HIGH);
 }
 
 void Pilot::disable()

@@ -1,3 +1,14 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of configuration persistence. Handles loading and saving
+ *              the AppConfig structure to the ESP32's Non-Volatile Storage (NVS).
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 #include "EvseConfig.h"
 #include <Preferences.h>
 

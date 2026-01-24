@@ -1,17 +1,13 @@
-/*****************************************************************************
- * @file EvseMqttController.cpp
- * @brief MQTT interface for EVSE control and Home Assistant discovery.
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of the MQTT controller. Handles connection management,
+ *              topic subscriptions, command processing, and status publishing.
  *
- * @details
- * Implements the `EvseMqttController` class which handles MQTT connection,
- * subscriptions for control commands, status publication, and Home Assistant
- * discovery messages.
- *
- * @copyright (C) Noel Vellemans 2026
- * @license GNU General Public License v2.0 (GPLv2)
- * @version 1.0.0
- * @date 2026-01-02
- ******************************************************************************/
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
 
 #include "EvseMqttController.h"
 #include "EvseLogger.h"

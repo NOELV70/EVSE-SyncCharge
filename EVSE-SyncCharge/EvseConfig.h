@@ -1,3 +1,14 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Header file for application configuration. Defines the AppConfig structure
+ *              containing WiFi, MQTT, OCPP, and EVSE settings, plus NVS helper prototypes.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 #ifndef EVSE_CONFIG_H
 #define EVSE_CONFIG_H
 

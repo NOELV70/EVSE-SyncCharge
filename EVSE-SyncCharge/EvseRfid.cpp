@@ -1,3 +1,14 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of the EvseRfid class. Handles communication with the
+ *              MFRC522 RFID reader for user authentication and access control.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 #include "EvseRfid.h"
 #include "EvseLogger.h"
 

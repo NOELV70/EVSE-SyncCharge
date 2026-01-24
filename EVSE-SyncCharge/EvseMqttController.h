@@ -1,3 +1,14 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Header file for the MQTT controller. Defines topics, MQTT interaction logic,
+ *              and Home Assistant discovery integration.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 /*!
  * @file EvseMqttController.h
  * @brief MQTT controller for EVSE (Electric Vehicle Supply Equipment) charger

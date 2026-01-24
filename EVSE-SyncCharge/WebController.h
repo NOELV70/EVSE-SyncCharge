@@ -1,3 +1,14 @@
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Header file for the WebController class. Defines the web server instance,
+ *              route handlers, and helper methods for the web interface.
+ *
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
+
 #ifndef WEB_CONTROLLER_H
 #define WEB_CONTROLLER_H
 
@@ -46,6 +57,7 @@ private:
     void handleConfigMqtt();
     void handleConfigWifi();
     void handleConfigOcpp();
+    void handleConfigLed();
     void handleConfigAuth();
     void handleSaveConfig();
     void handleCmd();

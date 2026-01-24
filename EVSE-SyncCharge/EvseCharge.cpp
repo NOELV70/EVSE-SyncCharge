@@ -1,16 +1,13 @@
-/*****************************************************************************
- * @file EvseCharge.cpp
- * @brief Implementation of the EVSE charging logic and state machine.
+/* =========================================================================================
+ * Project:     Evse-SyncCharge
+ * Description: Implementation of the core EVSE charging logic. Manages the J1772 state
+ *              machine, relay control, safety timers, and current limiting.
  *
- * @details
- * Implements the `EvseCharge` class which integrates `Pilot` and `Relay`
- * components to manage charging state, current limits, and safety behaviors.
- *
- * @copyright (C) Noel Vellemans 2026
- * @license GNU General Public License v2.0 (GPLv2)
- * @version 1.0.0
- * @date 2026-01-02
- ******************************************************************************/
+ * Author:      Noel Vellemans
+ * Copyright:   (C) 2026 Noel Vellemans
+ * License:     GNU General Public License v2.0 (GPLv2)
+ * =========================================================================================
+ */
 
 #include "EvseCharge.h"
 #include "Rcm.h"

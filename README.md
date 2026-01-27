@@ -30,6 +30,8 @@ Universal Connectivity
 
 * OCPP 1.6J Compliance: Full WebSocket/WSS implementation allows connection to commercial backends (SteVe, Monta, etc.) for remote billing, authorization, and fleet management.
 
+* **Integrated RFID Access Control:** A complete, user-configurable RFID management system. Enable or disable RFID authentication, add up to 10 authorized tags with custom names (e.g., "Noel's Key"), and use them to start/stop charging sessions. Features a web-based "Learn Mode" for easy tag registration and provides instant visual feedback with LED flashes for accepted or denied scans. All tags are persistently stored in NVS.
+
 * Native MQTT & Home Assistant: Features "Zero-Config" Auto-Discovery for Home Assistant.
   Instantly exposes sensors for Current, Voltage, Pilot Duty, and Vehicle State without writing a single line of YAML.
 
@@ -59,7 +61,3 @@ Why EVSE-SyncCharge?
 <img width="578" height="894" alt="image" src="https://github.com/user-attachments/assets/615cf967-1121-4093-954a-ca737cb721dd" />
 <img width="544" height="877" alt="image" src="https://github.com/user-attachments/assets/2cb59e41-261e-4c45-a2f2-ec754b5e7882" />
 <img width="522" height="730" alt="image" src="https://github.com/user-attachments/assets/e8977c46-8974-4426-9abe-26caa5f04311" />
-
-
-
-

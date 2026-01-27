@@ -13,31 +13,40 @@
 #include "EvseLogger.h"
 #include <ArduinoJson.h>
 
-EvseRfid::EvseRfid(int ssPin, int rstPin, int buzzerPin) 
-    : _ssPin(ssPin), _rstPin(rstPin), _buzzerPin(buzzerPin), _mfrc522(ssPin, rstPin), _lastScanTime(0) 
+EvseRfid::EvseRfid() 
+    : _ssPin(0), _rstPin(0), _buzzerPin(0), _mfrc522(nullptr), _lastScanTime(0) 
 {
 }
 
-void EvseRfid::begin() {
+void EvseRfid::begin(int ssPin, int rstPin, int buzzerPin) {
+    _ssPin = ssPin;
+    _rstPin = rstPin;
+    _buzzerPin = buzzerPin;
+
+    if (_mfrc522) delete _mfrc522;
+    _mfrc522 = new MFRC522(_ssPin, _rstPin);
+
     pinMode(_buzzerPin, OUTPUT);
     digitalWrite(_buzzerPin, LOW);
     SPI.begin();        // Initialize SPI bus
-    _mfrc522.PCD_Init(); // Initialize MFRC522 card
+    _mfrc522->PCD_Init(); // Initialize MFRC522 card
     
     // Optional: Log version to verify hardware connection
-    byte v = _mfrc522.PCD_ReadRegister(MFRC522::VersionReg);
+    byte v = _mfrc522->PCD_ReadRegister(MFRC522::VersionReg);
     logger.infof("[RFID] Initialized (MFRC522 Version: 0x%02X)", v);
     if (v == 0x00 || v == 0xFF) {
         logger.warn("[RFID] Warning: Communication failure, check wiring!");
     }
     
     _prefs.begin("evse-rfid", false);
+    _enabled = _prefs.getBool("enabled", false);
     loadTags();
     logger.infof("[RFID] Loaded %d tags from NVS.", _tags.size());
 }
 
 void EvseRfid::setEnabled(bool enabled) {
     _enabled = enabled;
+    _prefs.putBool("enabled", enabled);
     logger.infof("[RFID] System set to %s", enabled ? "ENABLED" : "DISABLED");
 }
 
@@ -50,7 +59,7 @@ void EvseRfid::setBuzzerEnabled(bool enabled) {
 void EvseRfid::startLearning() {
     _learning = true;
     _lastScannedUid = "";
-    logger.info("[RFID] Learning mode started...");
+    logger.info("[RFID] Learning mode started... Waiting for card.");
 }
 
 bool EvseRfid::isLearning() { return _learning; }
@@ -158,31 +167,44 @@ void EvseRfid::loop() {
         _beeping = false;
     }
 
-    // Debounce: Limit scans to once every 2 seconds to prevent flooding
-    if (millis() - _lastScanTime < 2000) return;
+    // Debounce: Limit scans to once every 1.5 seconds to prevent flooding
+    // Bypass debounce if in learning mode to ensure we catch the tag immediately
+    if (!_learning && (millis() - _lastScanTime < 1500)) return;
 
     // 1. Look for new cards
-    if (!_mfrc522.PICC_IsNewCardPresent()) return;
+    if (!_mfrc522 || !_mfrc522->PICC_IsNewCardPresent()) return;
 
     // 2. Select one of the cards
-    if (!_mfrc522.PICC_ReadCardSerial()) return;
+    if (!_mfrc522->PICC_ReadCardSerial()) {
+        if (_learning) logger.warn("[RFID] Learn Mode: Card detected but Read failed");
+        return;
+    }
 
     // 3. Process UID
-    String uid = uidToHexString(_mfrc522.uid.uidByte, _mfrc522.uid.size);
+    String uid = uidToHexString(_mfrc522->uid.uidByte, _mfrc522->uid.size);
     _lastScanTime = millis();
 
     if (_learning) {
+        logger.infof("[RFID] LEARN MODE DETECTED UID: %s", uid.c_str());
         _lastScannedUid = uid;
         _learning = false;
-        logger.infof("[RFID] LEARNED: %s", uid.c_str());
-        _mfrc522.PICC_HaltA();
-        _mfrc522.PCD_StopCrypto1();
+        
+        // Feedback for learning
+        if (_buzzerEnabled) {
+            digitalWrite(_buzzerPin, HIGH);
+            _buzzerStartTime = millis();
+            _buzzerDuration = 600; // Distinct long beep
+            _beeping = true;
+        }
+
+        _mfrc522->PICC_HaltA();
+        _mfrc522->PCD_StopCrypto1();
         return;
     }
 
     if (!_enabled) {
-        _mfrc522.PICC_HaltA();
-        _mfrc522.PCD_StopCrypto1();
+        _mfrc522->PICC_HaltA();
+        _mfrc522->PCD_StopCrypto1();
         return;
     }
 
@@ -202,9 +224,9 @@ void EvseRfid::loop() {
     }
 
     // 4. Halt PICC (Stop communicating with card)
-    _mfrc522.PICC_HaltA();
+    _mfrc522->PICC_HaltA();
     // 5. Stop encryption on PCD
-    _mfrc522.PCD_StopCrypto1();
+    _mfrc522->PCD_StopCrypto1();
 }
 
 String EvseRfid::uidToHexString(byte *buffer, byte bufferSize) {
@@ -218,8 +240,4 @@ String EvseRfid::uidToHexString(byte *buffer, byte bufferSize) {
 }
 
 // Global Instance
-// Default pins for ESP32 VSPI (SS=5). RST can be any GPIO (e.g. 17).
-constexpr int PIN_RFID_SS = 5;
-constexpr int PIN_RFID_RST = 17;
-constexpr int PIN_RFID_BUZZER = 4;
-EvseRfid rfid(PIN_RFID_SS, PIN_RFID_RST, PIN_RFID_BUZZER);
+EvseRfid rfid;

@@ -59,6 +59,7 @@
 #include "WebController.h"
 #include "OCPPHandler.h"
 #include "RGBWL2812.h"
+#include "EvseRfid.h"
 
 #define BAUD_RATE 115200
 #define WDT_TIMEOUT 8 
@@ -75,6 +76,8 @@ WebController webController(evse, pilot, mqttController, ocppHandler, config);
 String deviceId;
 bool isFallbackApMode = false;
 volatile bool g_otaUpdating = false;
+unsigned long g_rfidFeedbackUntil = 0;
+EvseLedState g_rfidFeedbackState = LED_OFF_STATE;
 
 /* --- HELPERS --- */
 
@@ -85,6 +88,11 @@ static void applyMqttConfig() {
 }
 
 void updateLedState() {
+    // Priority 0: RFID Feedback (Temporary Override)
+    if (millis() < g_rfidFeedbackUntil) {
+        led.setState(g_rfidFeedbackState);
+        return;
+    }
     // Priority 1: Error States
     if (evse.getVehicleState() == VEHICLE_ERROR || evse.getVehicleState() == VEHICLE_NO_POWER) {
         led.setState(LED_ERROR);
@@ -102,7 +110,7 @@ void updateLedState() {
     }
     // Priority 4: Standard States
     if (evse.getState() == STATE_CHARGING) led.setState(LED_CHARGING);
-    else if (evse.getVehicleState() == VEHICLE_CONNECTED) led.setState(LED_CONNECTED);
+    else if (evse.isVehicleConnected()) led.setState(LED_CONNECTED);
     else led.setState(LED_READY);
 }
 
@@ -185,6 +193,15 @@ void setup() {
     logger.infof("  DEVICE ID: %s", deviceId.c_str());
     logger.info("================================================");
 
+
+
+  Serial.println("Default SPI Pins:");
+  Serial.print("MOSI: "); Serial.println(MOSI);
+  Serial.print("MISO: "); Serial.println(MISO);
+  Serial.print("SCK: ");  Serial.println(SCK);
+  Serial.print("SS: ");   Serial.println(SS);
+
+
     ChargingSettings cs;
     cs.maxCurrent = config.maxCurrent; 
     cs.disableAtLowLimit = !config.allowBelow6AmpCharging; // Invert logic for internal struct
@@ -265,6 +282,22 @@ void setup() {
         }
     }
 
+    // RFID Initialization
+    rfid.begin(5, 17, 4); // SS=5, RST=17, Buzzer=4
+    rfid.onCardScanned([](String uid, bool authorized){
+        if(authorized) {
+            logger.infof("[RFID] Auth Success: %s. Toggling Charge.", uid.c_str());
+            if(evse.getState() == STATE_CHARGING) evse.stopCharging();
+            else evse.startCharging();
+            g_rfidFeedbackState = LED_RFID_OK;
+            g_rfidFeedbackUntil = millis() + 2000; // Show Green for 2 seconds
+        } else {
+            logger.warnf("[RFID] Auth Failed: %s", uid.c_str());
+            g_rfidFeedbackState = LED_RFID_REJECT;
+            g_rfidFeedbackUntil = millis() + 2000; // Show Red for 2 seconds
+        }
+    });
+
     MDNS.begin(deviceId.c_str());
     ArduinoOTA.begin();
 
@@ -294,6 +327,7 @@ void loop() {
     }
 
     webController.loop();
+    rfid.loop();
     if (config.mqttEnabled) mqttController.loop();
     if (config.ocppEnabled) ocppHandler.loop();
     ArduinoOTA.handle();

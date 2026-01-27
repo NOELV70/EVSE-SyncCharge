@@ -18,10 +18,9 @@ const int MAX_RFID_TAGS = 10;
 
 class EvseRfid {
 public:
-    // Constructor: Define Chip Select (SS/SDA) and Reset (RST) pins
-    EvseRfid(int ssPin, int rstPin, int buzzerPin);
+    EvseRfid();
 
-    void begin();
+    void begin(int ssPin, int rstPin, int buzzerPin);
     void loop();
 
     // Management of authorized cards
@@ -50,7 +49,7 @@ private:
     int _ssPin;
     int _rstPin;
     int _buzzerPin;
-    MFRC522 _mfrc522;
+    MFRC522* _mfrc522 = nullptr;
     std::vector<RfidTag> _tags;
     RfidCallback _callback;
     unsigned long _lastScanTime;
@@ -69,5 +68,7 @@ private:
     
     String uidToHexString(byte *buffer, byte bufferSize);
 };
+
+extern EvseRfid rfid;
 
 #endif

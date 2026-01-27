@@ -18,11 +18,13 @@
 #include <esp_system.h>
 #include <esp_task_wdt.h>
 #include "RGBWL2812.h"
+#include "EvseRfid.h"
 
 WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config)
     : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), apMode(false), _rebootPending(false), _rebootTimestamp(0) {}
 
 extern volatile bool g_otaUpdating;
+extern EvseRfid rfid;
 
 void WebController::begin(const String& deviceId, bool apMode) {
     this->deviceId = deviceId;
@@ -68,6 +70,63 @@ void WebController::begin(const String& deviceId, bool apMode) {
     webServer.on("/update", HTTP_GET, [this](){ handleUpdate(); });
     webServer.on("/doUpdate", HTTP_POST, [this](){ handleDoUpdate(); }, [this](){ handleUpdateUpload(); });
     
+    // --- RFID Routes ---
+    webServer.on("/config/rfid", HTTP_GET, [this](){
+        if (!checkAuth()) return;
+        String h = "<!DOCTYPE html><html><head><title>RFID Config</title>" + String(dashStyle) + "</head><body><div class='container'><h1>RFID Configuration</h1>";
+        
+        // Enable/Disable Form
+        h += "<form id='saveForm' method='POST' action='/rfid/save' style='margin-bottom:15px; padding:15px; background:#222; border-radius:8px;'>";
+        h += "<label>RFID Reader Status</label>";
+        h += "<select name='en'><option value='1' " + String(rfid.isEnabled()?"selected":"") + ">ENABLED</option><option value='0' " + String(!rfid.isEnabled()?"selected":"") + ">DISABLED</option></select>";
+        h += "</form>";
+
+        // Learning Mode
+        h += "<div style='margin-bottom:15px; padding:5px; background:#222; border-radius:5px;'><h3>Learning Mode</h3>";
+        if(rfid.isLearning()) {
+            h += "<script>setTimeout(function(){window.location.reload();}, 800);</script>";
+            h += "<p style='color:#ffcc00; animation:blink 1s infinite'>SCAN CARD NOW...</p><a href='/config/rfid' class='btn'>REFRESH</a>";
+        } else {
+            String last = rfid.getLastScannedUid();
+            if(last.length() > 0) h += "<p>Last Scanned: <b>" + last + "</b> <button type='button' class='btn' style='padding:15px; width:auto; font-size:0.8em' onclick=\"document.getElementById('uid').value='" + last + "'\">COPY</button></p>";
+            h += "<a href='/rfid/learn' class='btn' style='background:#673ab7; color:#fff'>START LEARNING (10s)</a>";
+        }
+        h += "</div>";
+
+        // Add Tag Form
+        h += "<div style='margin-bottom:20px; padding:15px; background:#222; border-radius:8px;'><h3>Add New Tag</h3>";
+        h += "<form method='POST' action='/rfid/add'>";
+        h += "<label>UID (Hex)</label><input name='uid' id='uid' placeholder='E.g. A1B2C3D4' required>";
+        h += "<label>Tag Name</label><input name='name' placeholder='E.g. Noel Key' required>";
+        h += "<button type='submit' class='btn'>ADD TAG</button>";
+        h += "</form></div>";
+
+        // Tag List
+        h += "<h3>Authorized Tags</h3><div style='overflow-x:auto'><table style='width:100%; border-collapse:collapse; color:#ccc;'>";
+        h += "<tr style='background:#333; text-align:left'><th style='padding:10px'>UID</th><th style='padding:10px'>Name</th><th style='padding:10px'>Action</th></tr>";
+        std::vector<RfidTag> tags = rfid.getTags();
+        for(const auto& t : tags) {
+            h += "<tr style='border-bottom:1px solid #444;'>";
+            h += "<td style='padding:10px; font-family:monospace'>" + t.uid + "</td>";
+            h += "<td style='padding:10px'>" + t.name + "</td>";
+            h += "<td style='padding:10px'><form method='POST' action='/rfid/delete' onsubmit=\"return confirm('Delete " + t.name + "?');\"><input type='hidden' name='uid' value='" + t.uid + "'><button type='submit' class='btn btn-red' style='padding:5px 10px; margin:0; width:auto; font-size:0.8em'>DEL</button></form></td>";
+            h += "</tr>";
+        }
+        h += "</table></div>";
+
+        h += "<div style='display:flex; gap:10px; margin-top:20px;'>";
+        h += "<button type='button' class='btn' onclick=\"document.getElementById('saveForm').submit();\">SAVE SETTINGS</button>";
+        h += "<a class='btn' style='background:#444; color:#fff; margin-top:0;' href='/settings'>BACK</a>";
+        h += "</div>";
+        h += "<style>@keyframes blink{50%{opacity:0.5}}</style></div></body></html>";
+        webServer.send(200, "text/html", h);
+    });
+
+    webServer.on("/rfid/save", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("en")) rfid.setEnabled(webServer.arg("en")=="1"); webServer.sendHeader("Location", "/settings", true); webServer.send(302, "text/plain", ""); });
+    webServer.on("/rfid/add", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("uid")) rfid.addTag(webServer.arg("uid"), webServer.arg("name")); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
+    webServer.on("/rfid/delete", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("uid")) rfid.deleteTag(webServer.arg("uid")); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
+    webServer.on("/rfid/learn", HTTP_GET, [this](){ if(checkAuth()) rfid.startLearning(); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
+
     webServer.onNotFound([this](){ handleRoot(); });
     webServer.begin();
 }
@@ -242,6 +301,7 @@ void WebController::handleSettingsMenu() {
     h += "<a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
     h += "<a href='/config/ocpp' class='btn'>OCPP CONFIGURATION</a>";
     h += "<a href='/config/led' class='btn'>LED CONFIGURATION</a>";
+    h += "<a href='/config/rfid' class='btn'>RFID MANAGEMENT</a>";
     h += "<a href='/config/auth' class='btn btn-red'>ADMIN SECURITY</a>";
     h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a></div>";
     h += "<a href='/' class='btn' style='background:#444; color:#fff;'>CLOSE</a>";
@@ -324,8 +384,12 @@ void WebController::handleConfigLed() {
         const char* cols[] = {"OFF","RED","GREEN","BLUE","YELLOW","CYAN","MAGENTA","WHITE"};
         for(int i=0;i<8;i++) h += "<option value='"+String(i)+"' "+String(s.color==i?"selected":"")+">"+cols[i]+"</option>";
         h += "</select><select name='"+pfx+"_e'>";
-        const char* effs[] = {"STEADY","SOLID","BLINK SLOW","BLINK FAST","BREATH","RAINBOW","KNIGHT RIDER","CHASE"};
-        for(int i=0;i<8;i++) h += "<option value='"+String(i)+"' "+String(s.effect==i?"selected":"")+">"+effs[i]+"</option>";
+        const char* effs[] = {
+            "OFF", "SOLID", "BLINK SLOW", "BLINK FAST", "BREATH", "RAINBOW", 
+            "KNIGHT RIDER", "CHASE", "SPARKLE", "THEATER CHASE", "FIRE", "WAVE", 
+            "TWINKLE", "COLOR WIPE", "RAINBOW CHASE", "COMET", "PULSE", "STROBE"
+        };
+        for(int i=0;i<18;i++) h += "<option value='"+String(i)+"' "+String(s.effect==i?"selected":"")+">"+effs[i]+"</option>";
         h += "</select></div></div>";
     };
 
@@ -336,10 +400,15 @@ void WebController::handleConfigLed() {
     addStateRow("WiFi Config / AP", "wifi", ls.stateWifi);
     addStateRow("Boot / Startup", "boot", ls.stateBoot);
     addStateRow("Solar Idle (<6A)", "solidle", ls.stateSolarIdle);
+    addStateRow("RFID Accepted", "rfidok", ls.stateRfidOk);
+    addStateRow("RFID Rejected", "rfidnok", ls.stateRfidReject);
 
     h += "</div>";
     h += "<button type='button' class='btn' style='background:#673ab7; margin-top:15px; margin-bottom:15px;' onclick=\"fetch('/cmd?do=ledtest&ajax=1')\">TEST LED SEQUENCE (30s)</button>";
-    h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a>";
+    h += "<div style='display:flex; gap:10px;'>";
+    h += "<button class='btn' type='submit'>SAVE</button>";
+    h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a>";
+    h += "</div><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form>";
     h += "<script>function toggleLed(){var e=document.getElementById('len').value=='1';var f=document.getElementById('lfields');var i=f.getElementsByTagName('input');var s=f.getElementsByTagName('select');for(var k=0;k<i.length;k++)i[k].disabled=!e;for(var k=0;k<s.length;k++)s[k].disabled=!e;f.style.opacity=e?'1':'0.5';}toggleLed();</script></div></body></html>";
     
     webServer.send(200, "text/html", h);
@@ -437,6 +506,8 @@ void WebController::handleSaveConfig() {
         ls.stateWifi = getSt("wifi");
         ls.stateBoot = getSt("boot");
         ls.stateSolarIdle = getSt("solidle");
+        ls.stateRfidOk = getSt("rfidok");
+        ls.stateRfidReject = getSt("rfidnok");
         
         led.updateConfig(ls);
     }

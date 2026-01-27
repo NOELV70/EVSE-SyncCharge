@@ -38,7 +38,7 @@ constexpr float J1772_HIGH_RANGE_FACTOR    = 2.5f;
 constexpr float J1772_HIGH_RANGE_OFFSET    = 64.0f;
 
 // Voltage thresholds (MilliVolts) based on board_config style
-constexpr int VOLTAGE_STATE_NOT_CONNECTED = 11000; 
+constexpr int VOLTAGE_STATE_NOT_CONNECTED = 10600; 
 constexpr int VOLTAGE_STATE_CONNECTED     =  8000;
 constexpr int VOLTAGE_STATE_READY         =  5000;
 constexpr int VOLTAGE_STATE_VENTILATION   =  2000;

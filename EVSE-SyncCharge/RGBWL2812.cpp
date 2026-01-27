@@ -12,6 +12,24 @@
 #include "RGBWL2812.h"
 #include <Preferences.h>
 
+// Effect timing constants (milliseconds)
+constexpr int TIMING_BLINK_SLOW = 1000;
+constexpr int TIMING_BLINK_FAST = 250;
+constexpr int TIMING_BREATH = 20;
+constexpr int TIMING_RAINBOW = 20;
+constexpr int TIMING_KNIGHT_RIDER = 40;
+constexpr int TIMING_CHASE = 50;
+constexpr int TIMING_SPARKLE = 50;
+constexpr int TIMING_THEATER_CHASE = 100;
+constexpr int TIMING_FIRE = 30;
+constexpr int TIMING_WAVE = 30;
+constexpr int TIMING_TWINKLE = 100;
+constexpr int TIMING_COLOR_WIPE = 50;
+constexpr int TIMING_RAINBOW_CHASE = 30;
+constexpr int TIMING_COMET = 30;
+constexpr int TIMING_PULSE = 20;
+constexpr int TIMING_STROBE = 50;
+
 RGBWL2812::RGBWL2812(int pin)
     : _strip(8, pin, NEO_GRB + NEO_KHZ800), 
       _pin(pin),
@@ -33,6 +51,8 @@ RGBWL2812::RGBWL2812(int pin)
     _config.stateWifi      = {COL_BLUE, EFF_BLINK_SLOW};
     _config.stateBoot      = {COL_MAGENTA, EFF_RAINBOW};
     _config.stateSolarIdle = {COL_MAGENTA, EFF_BREATH};
+    _config.stateRfidOk    = {COL_GREEN, EFF_BLINK_FAST};
+    _config.stateRfidReject= {COL_RED, EFF_BLINK_FAST};
 }
 
 void RGBWL2812::begin() {
@@ -63,6 +83,8 @@ void RGBWL2812::loadConfig() {
     loadState("s_wifi", _config.stateWifi, COL_BLUE, EFF_BLINK_SLOW);
     loadState("s_boot", _config.stateBoot, COL_MAGENTA, EFF_RAINBOW);
     loadState("s_solidle", _config.stateSolarIdle, COL_MAGENTA, EFF_BREATH);
+    loadState("s_rfidok", _config.stateRfidOk, COL_GREEN, EFF_BLINK_FAST);
+    loadState("s_rfidnok", _config.stateRfidReject, COL_RED, EFF_BLINK_FAST);
     prefs.end();
 }
 
@@ -84,6 +106,8 @@ void RGBWL2812::saveConfig() {
     saveState("s_wifi", _config.stateWifi);
     saveState("s_boot", _config.stateBoot);
     saveState("s_solidle", _config.stateSolarIdle);
+    saveState("s_rfidok", _config.stateRfidOk);
+    saveState("s_rfidnok", _config.stateRfidReject);
     prefs.end();
     
     _strip.updateLength(_config.numLeds);
@@ -155,6 +179,8 @@ void RGBWL2812::loop() {
             case LED_ERROR:       currentSetting = _config.stateError; break;
             case LED_WIFI_CONFIG: currentSetting = _config.stateWifi; break;
             case LED_SOLAR_IDLE:  currentSetting = _config.stateSolarIdle; break;
+            case LED_RFID_OK:     currentSetting = _config.stateRfidOk; break;
+            case LED_RFID_REJECT: currentSetting = _config.stateRfidReject; break;
             default:              currentSetting = {COL_OFF, EFF_OFF}; break;
         }
     }
@@ -177,7 +203,7 @@ void RGBWL2812::runEffect(LedStateSetting setting) {
     }
 
     if (setting.effect == EFF_BLINK_SLOW || setting.effect == EFF_BLINK_FAST) {
-        int interval = (setting.effect == EFF_BLINK_SLOW) ? 1000 : 250;
+        int interval = (setting.effect == EFF_BLINK_SLOW) ? TIMING_BLINK_SLOW : TIMING_BLINK_FAST;
         if (now - _lastUpdate > interval) {
             _lastUpdate = now;
             _animStep = !_animStep;
@@ -187,13 +213,12 @@ void RGBWL2812::runEffect(LedStateSetting setting) {
     }
 
     if (setting.effect == EFF_BREATH) {
-        if (now - _lastUpdate > 20) {
+        if (now - _lastUpdate > TIMING_BREATH) {
             _lastUpdate = now;
             if (_animDir) _animStep += 2; else _animStep -= 2;
             if (_animStep >= 255) _animDir = false;
             if (_animStep <= 5) _animDir = true;
             
-            // Apply brightness scaling to color
             uint8_t r = (uint8_t)((c >> 16) & 0xFF);
             uint8_t g = (uint8_t)((c >> 8) & 0xFF);
             uint8_t b = (uint8_t)(c & 0xFF);
@@ -207,7 +232,7 @@ void RGBWL2812::runEffect(LedStateSetting setting) {
     }
 
     if (setting.effect == EFF_RAINBOW) {
-        if (now - _lastUpdate > 20) {
+        if (now - _lastUpdate > TIMING_RAINBOW) {
             _lastUpdate = now;
             _animStep++;
             if(_animStep > 255) _animStep = 0;
@@ -220,7 +245,7 @@ void RGBWL2812::runEffect(LedStateSetting setting) {
     }
 
     if (setting.effect == EFF_KNIGHT_RIDER) {
-        if (now - _lastUpdate > 40) {
+        if (now - _lastUpdate > TIMING_KNIGHT_RIDER) {
             _lastUpdate = now;
             _strip.clear();
             
@@ -229,7 +254,6 @@ void RGBWL2812::runEffect(LedStateSetting setting) {
             if (_animStep <= 0) _animDir = true;
 
             _strip.setPixelColor(_animStep, c);
-            // Add trail
             if (_animDir && _animStep > 0) _strip.setPixelColor(_animStep - 1, _strip.Color(((c>>16)&0xFF)/4, ((c>>8)&0xFF)/4, (c&0xFF)/4));
             else if (!_animDir && _animStep < _config.numLeds - 1) _strip.setPixelColor(_animStep + 1, _strip.Color(((c>>16)&0xFF)/4, ((c>>8)&0xFF)/4, (c&0xFF)/4));
 
@@ -239,7 +263,7 @@ void RGBWL2812::runEffect(LedStateSetting setting) {
     }
 
     if (setting.effect == EFF_CHASE) {
-        if (now - _lastUpdate > 50) {
+        if (now - _lastUpdate > TIMING_CHASE) {
             _lastUpdate = now;
             _animStep++;
             if (_animStep >= _config.numLeds) _animStep = 0;
@@ -247,6 +271,193 @@ void RGBWL2812::runEffect(LedStateSetting setting) {
             _strip.clear();
             _strip.setPixelColor(_animStep, c);
             _strip.show();
+        }
+        return;
+    }
+
+    // === NEW EFFECTS ===
+    
+    if (setting.effect == EFF_SPARKLE) {
+        if (now - _lastUpdate > TIMING_SPARKLE) {
+            _lastUpdate = now;
+            _strip.clear();
+            for(int i = 0; i < _config.numLeds / 3; i++) {
+                int pos = random(_config.numLeds);
+                _strip.setPixelColor(pos, c);
+            }
+            _strip.show();
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_THEATER_CHASE) {
+        if (now - _lastUpdate > TIMING_THEATER_CHASE) {
+            _lastUpdate = now;
+            _strip.clear();
+            for(int i = 0; i < _config.numLeds; i++) {
+                if ((i + _animStep) % 3 == 0) {
+                    _strip.setPixelColor(i, c);
+                }
+            }
+            _animStep++;
+            if (_animStep >= 3) _animStep = 0;
+            _strip.show();
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_FIRE) {
+        if (now - _lastUpdate > TIMING_FIRE) {
+            _lastUpdate = now;
+            for(int i = 0; i < _config.numLeds; i++) {
+                int flicker = random(50, 150);
+                uint8_t r = (uint8_t)((c >> 16) & 0xFF);
+                uint8_t g = (uint8_t)((c >> 8) & 0xFF);
+                uint8_t b = (uint8_t)(c & 0xFF);
+                
+                r = (r * flicker) / 100;
+                g = (g * flicker) / 100;
+                b = (b * flicker) / 100;
+                
+                _strip.setPixelColor(i, _strip.Color(r, g, b));
+            }
+            _strip.show();
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_WAVE) {
+        if (now - _lastUpdate > TIMING_WAVE) {
+            _lastUpdate = now;
+            _animStep++;
+            if (_animStep > 360) _animStep = 0;
+            
+            for(int i = 0; i < _config.numLeds; i++) {
+                float angle = (i * 360.0 / _config.numLeds) + _animStep;
+                float brightness = (sin(angle * PI / 180.0) + 1.0) / 2.0;
+                
+                uint8_t r = (uint8_t)(((c >> 16) & 0xFF) * brightness);
+                uint8_t g = (uint8_t)(((c >> 8) & 0xFF) * brightness);
+                uint8_t b = (uint8_t)((c & 0xFF) * brightness);
+                
+                _strip.setPixelColor(i, _strip.Color(r, g, b));
+            }
+            _strip.show();
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_TWINKLE) {
+        if (now - _lastUpdate > TIMING_TWINKLE) {
+            _lastUpdate = now;
+            for(int i = 0; i < _config.numLeds; i++) {
+                uint32_t color = _strip.getPixelColor(i);
+                uint8_t r = ((color >> 16) & 0xFF) * 0.9;
+                uint8_t g = ((color >> 8) & 0xFF) * 0.9;
+                uint8_t b = (color & 0xFF) * 0.9;
+                _strip.setPixelColor(i, _strip.Color(r, g, b));
+            }
+            if (random(100) < 30) {
+                int pos = random(_config.numLeds);
+                _strip.setPixelColor(pos, c);
+            }
+            _strip.show();
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_COLOR_WIPE) {
+        if (now - _lastUpdate > TIMING_COLOR_WIPE) {
+            _lastUpdate = now;
+            _strip.setPixelColor(_animStep, c);
+            _strip.show();
+            _animStep++;
+            if (_animStep >= _config.numLeds) {
+                _animStep = 0;
+                delay(300);
+                _strip.clear();
+            }
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_RAINBOW_CHASE) {
+        if (now - _lastUpdate > TIMING_RAINBOW_CHASE) {
+            _lastUpdate = now;
+            _animStep++;
+            if(_animStep > 255) _animStep = 0;
+            
+            for(int i = 0; i < _config.numLeds; i++) {
+                if (i % 3 == (_animStep / 10) % 3) {
+                    _strip.setPixelColor(i, Wheel((i * 256 / _config.numLeds + _animStep) & 255));
+                } else {
+                    _strip.setPixelColor(i, 0);
+                }
+            }
+            _strip.show();
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_COMET) {
+        if (now - _lastUpdate > TIMING_COMET) {
+            _lastUpdate = now;
+            _strip.clear();
+            
+            _strip.setPixelColor(_animStep, c);
+            for(int j = 1; j < 5; j++) {
+                int pos = _animStep - j;
+                if (pos >= 0) {
+                    uint8_t r = (uint8_t)(((c >> 16) & 0xFF) / (j + 1));
+                    uint8_t g = (uint8_t)(((c >> 8) & 0xFF) / (j + 1));
+                    uint8_t b = (uint8_t)((c & 0xFF) / (j + 1));
+                    _strip.setPixelColor(pos, _strip.Color(r, g, b));
+                }
+            }
+            
+            _animStep++;
+            if (_animStep >= _config.numLeds + 5) {
+                _animStep = 0;
+                delay(200);
+            }
+            _strip.show();
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_PULSE) {
+        if (now - _lastUpdate > TIMING_PULSE) {
+            _lastUpdate = now;
+            if (_animDir) _animStep += 3; else _animStep -= 3;
+            if (_animStep >= 255) _animDir = false;
+            if (_animStep <= 0) _animDir = true;
+            
+            int center = _config.numLeds / 2;
+            for(int i = 0; i < _config.numLeds; i++) {
+                int distance = abs(i - center);
+                int brightness = _animStep - (distance * 30);
+                if (brightness < 0) brightness = 0;
+                
+                uint8_t r = (uint8_t)(((c >> 16) & 0xFF) * brightness / 255);
+                uint8_t g = (uint8_t)(((c >> 8) & 0xFF) * brightness / 255);
+                uint8_t b = (uint8_t)((c & 0xFF) * brightness / 255);
+                
+                _strip.setPixelColor(i, _strip.Color(r, g, b));
+            }
+            _strip.show();
+        }
+        return;
+    }
+
+    if (setting.effect == EFF_STROBE) {
+        if (now - _lastUpdate > TIMING_STROBE) {
+            _lastUpdate = now;
+            _animStep = !_animStep;
+            if (_animStep) {
+                setAll(c);
+            } else {
+                setAll(0);
+            }
         }
         return;
     }
@@ -287,8 +498,7 @@ uint32_t RGBWL2812::Wheel(byte WheelPos) {
   return _strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
 }
 
-
 // LED 
-constexpr int PIN_GRB_LED_OUT    = 22;
+constexpr int PIN_GRB_LED_OUT = 22;
 
 RGBWL2812 led(PIN_GRB_LED_OUT);

@@ -39,23 +39,17 @@ void Rcm::begin()
 {
     logger.info("[RCM] Initializing Residual Current Monitor...");
 
-    return;
-
-    
     rcmSemaphore = xSemaphoreCreateBinary();
     if (rcmSemaphore == NULL) return;
-
-    // Configure Test Pin
-    pinMode(PIN_RCM_TEST, OUTPUT);
-    digitalWrite(PIN_RCM_TEST, LOW);
 
     // Configure Input Pin
     // Note: We use INPUT_PULLDOWN to match original logic. 
     // Ensure PIN_RCM_IN is a GPIO that supports internal pull-down (GPIO 0-33).
     pinMode(PIN_RCM_IN, INPUT_PULLDOWN);
 
-    // Allow pin state to stabilize before attaching interrupt to prevent spurious triggers
-    delay(50);
+    // Configure Test Pin
+    pinMode(PIN_RCM_TEST, OUTPUT);
+    digitalWrite(PIN_RCM_TEST, LOW);
 
     // Attach Interrupt
     attachInterrupt(digitalPinToInterrupt(PIN_RCM_IN), rcmIsr, RISING);

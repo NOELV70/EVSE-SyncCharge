@@ -37,8 +37,11 @@ void loadConfig(AppConfig &config) {
     config.maxCurrent = prefs.getFloat("e_max_cur", 32.0f);
     config.mqttFailsafeEnabled = prefs.getBool("m_safe", false);
     config.mqttFailsafeTimeout = prefs.getULong("m_safe_t", 600);
-    config.rcmEnabled = prefs.getBool("e_rcm_en", true);
+    config.rcmEnabled = prefs.getBool("e_rcm_en", false);
     config.solarStopTimeout = prefs.getULong("e_sol_to", 0); // Default 0 (Disabled)
+    //config.rfidEnabled = prefs.getBool("rfid_en", false);
+    //config.rfidBuzzerEnabled = prefs.getBool("rfid_bz", false);
+
 
     config.ocppEnabled = prefs.getBool("o_en", false);
     config.ocppHost = prefs.getString("o_host", "");
@@ -70,6 +73,8 @@ void saveConfig(const AppConfig &config) {
     prefs.putULong("m_safe_t", config.mqttFailsafeTimeout);
     prefs.putBool("e_rcm_en", config.rcmEnabled);
     prefs.putULong("e_sol_to", config.solarStopTimeout);
+//    prefs.putBool("rfid_en", config.rfidEnabled);
+//    prefs.putBool("rfid_bz", config.rfidBuzzerEnabled);
 
     prefs.putBool("o_en", config.ocppEnabled);
     prefs.putString("o_host", config.ocppHost);

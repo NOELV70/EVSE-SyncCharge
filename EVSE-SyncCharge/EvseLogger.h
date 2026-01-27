@@ -1,6 +1,6 @@
 /*******************************************************************************
  * @file EvseLogger.h
- * @brief Lightweight structured logging helper for the EVSE project.
+ * Lightweight structured logging helper for the EVSE project.
  *
  * @details
  * Provides `EvseLogger` class with leveled logging and printf-style helpers.

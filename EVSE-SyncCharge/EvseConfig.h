@@ -38,13 +38,14 @@ struct AppConfig {
     float maxCurrent = 32.0f;
     bool mqttFailsafeEnabled = false;
     unsigned long mqttFailsafeTimeout = 600; // Seconds
-    bool rcmEnabled = true;
+    bool rcmEnabled = false;
     unsigned long solarStopTimeout = 0; // 0 = Disabled
-
+    //bool rfidEnabled = false;
+    //bool rfidBuzzerEnabled = true;
     // OCPP Configuration
     bool ocppEnabled = false;
     String ocppHost = "";
-    uint16_t ocppPort = 80;
+    uint16_t ocppPort = 9000;
     String ocppUrl = "/ocpp/1.6";
     bool ocppUseTls = false;
     String ocppAuthKey = "";

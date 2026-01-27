@@ -1,6 +1,6 @@
 /*****************************************************************************
  * @file EvseTypes.h
- * @brief Common types and configuration defaults used across the EVSE project.
+ * Common types and configuration defaults used across the EVSE project.
  *
  * @details
  * Defines enumerations for charging and vehicle states, the `ActualCurrent`

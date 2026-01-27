@@ -115,7 +115,7 @@ private:
     int lowVoltageMv = 0;
     float currentDutyPercent = 0.0f;
     bool pwmAttached = false;
-    VEHICLE_STATE_T lastVehicleState = VEHICLE_ERROR; 
+    VEHICLE_STATE_T lastVehicleState = VEHICLE_NOT_CONNECTED; 
 
 #if RAW_AD_USE
     adc_channel_t _adc_channel;

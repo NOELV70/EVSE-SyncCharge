@@ -1,6 +1,6 @@
 /*****************************************************************************
  * @file WebPages.h
- * @brief Declarations for Web Interface HTML and Script content.
+ * Declarations for Web Interface HTML and Script content.
  ******************************************************************************/
 
 #ifndef WEB_PAGES_H

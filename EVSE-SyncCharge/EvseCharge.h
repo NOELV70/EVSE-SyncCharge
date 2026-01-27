@@ -1,6 +1,6 @@
 /*****************************************************************************
  * @file EvseCharge.h
- * @brief Header for the EVSE charging controller class.
+ * Header for the EVSE charging controller class.
  *
  * @details
  * Declares the `EvseCharge` class which handles charging state transitions,

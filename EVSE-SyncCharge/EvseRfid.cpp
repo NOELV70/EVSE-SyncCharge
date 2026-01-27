@@ -11,13 +11,16 @@
 
 #include "EvseRfid.h"
 #include "EvseLogger.h"
+#include <ArduinoJson.h>
 
-EvseRfid::EvseRfid(int ssPin, int rstPin) 
-    : _ssPin(ssPin), _rstPin(rstPin), _mfrc522(ssPin, rstPin), _lastScanTime(0) 
+EvseRfid::EvseRfid(int ssPin, int rstPin, int buzzerPin) 
+    : _ssPin(ssPin), _rstPin(rstPin), _buzzerPin(buzzerPin), _mfrc522(ssPin, rstPin), _lastScanTime(0) 
 {
 }
 
 void EvseRfid::begin() {
+    pinMode(_buzzerPin, OUTPUT);
+    digitalWrite(_buzzerPin, LOW);
     SPI.begin();        // Initialize SPI bus
     _mfrc522.PCD_Init(); // Initialize MFRC522 card
     
@@ -27,38 +30,119 @@ void EvseRfid::begin() {
     if (v == 0x00 || v == 0xFF) {
         logger.warn("[RFID] Warning: Communication failure, check wiring!");
     }
+    
+    _prefs.begin("evse-rfid", false);
+    loadTags();
+    logger.infof("[RFID] Loaded %d tags from NVS.", _tags.size());
 }
 
-void EvseRfid::addAllowedUid(String uid) {
+void EvseRfid::setEnabled(bool enabled) {
+    _enabled = enabled;
+    logger.infof("[RFID] System set to %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+bool EvseRfid::isEnabled() { return _enabled; }
+
+void EvseRfid::setBuzzerEnabled(bool enabled) {
+    _buzzerEnabled = enabled;
+}
+
+void EvseRfid::startLearning() {
+    _learning = true;
+    _lastScannedUid = "";
+    logger.info("[RFID] Learning mode started...");
+}
+
+bool EvseRfid::isLearning() { return _learning; }
+
+String EvseRfid::getLastScannedUid() { return _lastScannedUid; }
+
+void EvseRfid::clearLastScannedUid() { _lastScannedUid = ""; }
+
+bool EvseRfid::addTag(String uid, String name) {
     uid.toUpperCase();
-    // Avoid duplicates
-    for (const auto& id : _allowedUids) {
-        if (id == uid) return;
+    // Update existing tag
+    for (auto& t : _tags) {
+        if (t.uid == uid) {
+            t.name = name; // Update name
+            saveTags();
+            logger.infof("[RFID] Updated tag: %s (%s)", uid.c_str(), name.c_str());
+            return true;
+        }
     }
-    _allowedUids.push_back(uid);
-    logger.infof("[RFID] Added authorized UID: %s", uid.c_str());
+    // Check if max tags reached
+    if (_tags.size() >= MAX_RFID_TAGS) {
+        logger.warnf("[RFID] Cannot add new tag. List is full (Max: %d)", MAX_RFID_TAGS);
+        return false;
+    }
+    // Add new tag
+    _tags.push_back({uid, name, true});
+    saveTags();
+    logger.infof("[RFID] Added tag: %s (%s)", uid.c_str(), name.c_str());
+    return true;
 }
 
-void EvseRfid::removeAllowedUid(String uid) {
+void EvseRfid::toggleTagStatus(String uid) {
     uid.toUpperCase();
-    for (auto it = _allowedUids.begin(); it != _allowedUids.end(); ++it) {
-        if (*it == uid) {
-            _allowedUids.erase(it);
-            logger.infof("[RFID] Removed authorized UID: %s", uid.c_str());
+    for (auto& t : _tags) {
+        if (t.uid == uid) {
+            t.active = !t.active;
+            saveTags();
+            logger.infof("[RFID] Tag %s status set to: %s", uid.c_str(), t.active ? "ACTIVE" : "INACTIVE");
+            return;
+        }
+    }
+}
+
+void EvseRfid::deleteTag(String uid) {
+    uid.toUpperCase();
+    for (auto it = _tags.begin(); it != _tags.end(); ++it) {
+        if (it->uid == uid) {
+            _tags.erase(it);
+            saveTags();
+            logger.infof("[RFID] Removed tag: %s", uid.c_str());
             return;
         }
     }
 }
 
 void EvseRfid::clearAllowedUids() {
-    _allowedUids.clear();
+    _tags.clear();
+    saveTags();
     logger.info("[RFID] Cleared all authorized UIDs");
+}
+
+std::vector<RfidTag> EvseRfid::getTags() { return _tags; }
+
+void EvseRfid::saveTags() {
+    JsonDocument doc;
+    JsonArray arr = doc.to<JsonArray>();
+    for (const auto& t : _tags) {
+        JsonObject obj = arr.add<JsonObject>();
+        obj["u"] = t.uid;
+        obj["n"] = t.name;
+        obj["a"] = t.active;
+    }
+    String out; serializeJson(doc, out);
+    _prefs.putString("tags", out);
+}
+
+void EvseRfid::loadTags() {
+    _tags.clear();
+    String data = _prefs.getString("tags", "[]");
+    JsonDocument doc; deserializeJson(doc, data);
+    JsonArray arr = doc.as<JsonArray>();
+    for (JsonObject obj : arr) {
+        // Default to true for 'active' if the field is missing (for backward compatibility)
+        _tags.push_back({obj["u"].as<String>(), obj["n"].as<String>(), obj["a"] | true});
+    }
 }
 
 bool EvseRfid::isUidAllowed(String uid) {
     uid.toUpperCase();
-    for (const auto& id : _allowedUids) {
-        if (id == uid) return true;
+    for (const auto& t : _tags) {
+        // Only allow if the tag is found AND it's active
+        if (t.uid == uid) return t.active;
     }
     return false;
 }
@@ -68,6 +152,12 @@ void EvseRfid::onCardScanned(RfidCallback callback) {
 }
 
 void EvseRfid::loop() {
+    // Handle Buzzer (Non-blocking)
+    if (_beeping && millis() - _buzzerStartTime > _buzzerDuration) {
+        digitalWrite(_buzzerPin, LOW);
+        _beeping = false;
+    }
+
     // Debounce: Limit scans to once every 2 seconds to prevent flooding
     if (millis() - _lastScanTime < 2000) return;
 
@@ -81,7 +171,29 @@ void EvseRfid::loop() {
     String uid = uidToHexString(_mfrc522.uid.uidByte, _mfrc522.uid.size);
     _lastScanTime = millis();
 
+    if (_learning) {
+        _lastScannedUid = uid;
+        _learning = false;
+        logger.infof("[RFID] LEARNED: %s", uid.c_str());
+        _mfrc522.PICC_HaltA();
+        _mfrc522.PCD_StopCrypto1();
+        return;
+    }
+
+    if (!_enabled) {
+        _mfrc522.PICC_HaltA();
+        _mfrc522.PCD_StopCrypto1();
+        return;
+    }
+
     bool authorized = isUidAllowed(uid);
+    
+    if (_buzzerEnabled) {
+        digitalWrite(_buzzerPin, HIGH);
+        _buzzerStartTime = millis();
+        _buzzerDuration = authorized ? 200 : 1000; // Short for success, long for failure
+        _beeping = true;
+    }
     
     logger.infof("[RFID] Card Scanned: %s | Authorized: %s", uid.c_str(), authorized ? "YES" : "NO");
 
@@ -104,3 +216,10 @@ String EvseRfid::uidToHexString(byte *buffer, byte bufferSize) {
     res.toUpperCase();
     return res;
 }
+
+// Global Instance
+// Default pins for ESP32 VSPI (SS=5). RST can be any GPIO (e.g. 17).
+constexpr int PIN_RFID_SS = 5;
+constexpr int PIN_RFID_RST = 17;
+constexpr int PIN_RFID_BUZZER = 4;
+EvseRfid rfid(PIN_RFID_SS, PIN_RFID_RST, PIN_RFID_BUZZER);

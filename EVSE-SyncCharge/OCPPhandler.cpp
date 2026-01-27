@@ -212,10 +212,24 @@ void OCPPHandler::sendMeterValues() {
 
 String OCPPHandler::sendAccepted(const String& messageId) {
     // [3, "id", {}]
-    return "[3, \"" + messageId + "\", {}]";
+    JsonDocument doc;
+    doc.add(3);
+    doc.add(messageId);
+    doc.add<JsonObject>();
+    String output;
+    serializeJson(doc, output);
+    return output;
 }
 
 String OCPPHandler::sendError(const String& messageId, const char* code, const char* desc) {
     // [4, "id", "code", "desc", {}]
-    return "[4, \"" + messageId + "\", \"" + code + "\", \"" + desc + "\", {}]";
+    JsonDocument doc;
+    doc.add(4);
+    doc.add(messageId);
+    doc.add(code);
+    doc.add(desc);
+    doc.add<JsonObject>();
+    String output;
+    serializeJson(doc, output);
+    return output;
 }

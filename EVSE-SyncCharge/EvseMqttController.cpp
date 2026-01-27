@@ -38,8 +38,9 @@ void EvseMqttController::begin(const char* mqttServer, int mqttPort,
     topicState                  = "evse/" + deviceId + "/state";
     topicVehicle                = "evse/" + deviceId + "/vehicleState";
     topicCurrent                = "evse/" + deviceId + "/current";
+    topicCurrentLimitState      = "evse/" + deviceId + "/currentLimit";
     topicPwmDuty                = "evse/" + deviceId + "/pwmDuty";
-    topicDisableAtLowLimit      = "evse/" + deviceId + "/setAllowBelow6AmpCharging";
+    topicSetAllowBelow6AmpCharging = "evse/" + deviceId + "/setAllowBelow6AmpCharging";
     topicDisableAtLowLimitState = "evse/" + deviceId + "/allowBelow6AmpCharging";
     topicLowLimitResumeDelay    = "evse/" + deviceId + "/lowLimitResumeDelay";
     topicCurrentTest            = "evse/" + deviceId + "/test/current";
@@ -87,8 +88,8 @@ void EvseMqttController::loop()
 
             mqttClient.subscribe(topicCommand.c_str());
             mqttClient.subscribe(topicSetCurrent.c_str());
-            mqttClient.subscribe(topicCurrentTest.c_str());
-            mqttClient.subscribe(topicDisableAtLowLimit.c_str());
+            mqttClient.subscribe(topicCurrentTest.c_str());            
+            mqttClient.subscribe(topicSetAllowBelow6AmpCharging.c_str());
             mqttClient.subscribe(topicSetFailsafe.c_str());
             mqttClient.subscribe(topicSetFailsafeTimeout.c_str());
             mqttClient.subscribe(topicRcmConfig.c_str());
@@ -137,6 +138,14 @@ void EvseMqttController::loop()
         char buf[8]; itoa((int)v, buf, 10);
         mqttClient.publish(topicVehicle.c_str(), buf, true);
         lastVehicleState = v;
+    }
+
+    float currentLimit = evse->getCurrentLimit();
+    if (currentLimit != lastCurrentLimit) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.1f", currentLimit);
+        mqttClient.publish(topicCurrentLimitState.c_str(), buf, true);
+        lastCurrentLimit = currentLimit;
     }
 
     ActualCurrent c = evse->getActualCurrent();
@@ -190,7 +199,7 @@ void EvseMqttController::mqttCallback(char* topic, byte* payload, unsigned int l
         evse->setCurrentLimit(amps);
         evse->signalThrottleAlive();
     }
-    else if (strcmp(topic, topicDisableAtLowLimit.c_str()) == 0)
+    else if (strcmp(topic, topicSetAllowBelow6AmpCharging.c_str()) == 0)
     {
         String lower = msg;
         lower.toLowerCase();
@@ -314,6 +323,13 @@ void EvseMqttController::publishHADiscovery()
     snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_charging/config", base, deviceId.c_str());
     snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Charging\",\"state_topic\":\"%s\",\"command_topic\":\"%s\",\"unique_id\":\"%s_charging\",\"device\":{\"identifiers\":[\"%s\"],\"manufacturer\":\"NVL\",\"model\":\"EVSE v1\",\"name\":\"EVSE Charger\"}}",
              topicState.c_str(), topicCommand.c_str(), deviceId.c_str(), deviceId.c_str());
+    mqttClient.publish(topicBuf, payloadBuf, true);
+
+    // --- Number: Current Limit ---
+    snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_current_limit/config", base, deviceId.c_str());
+    // Note: Max is set to 32.0 as a sensible default. The EVSE firmware itself will clamp to its configured maximum.
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Current Limit\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"min\":6.0,\"max\":32.0,\"step\":1.0,\"unique_id\":\"%s_current_limit\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicSetCurrent.c_str(), topicCurrentLimitState.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: Current ---

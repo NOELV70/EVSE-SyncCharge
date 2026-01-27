@@ -11,7 +11,7 @@
 
 /*!
  * @file EvseMqttController.h
- * @brief MQTT controller for EVSE (Electric Vehicle Supply Equipment) charger
+ * MQTT controller for EVSE (Electric Vehicle Supply Equipment) charger
  * 
  * @copyright (C) Noel Vellemans 2026
  * @license GNU General Public License v2.0 (GPLv2)
@@ -147,8 +147,9 @@ private:
     String topicState;
     String topicVehicle;
     String topicCurrent;
+    String topicCurrentLimitState;
     String topicPwmDuty;
-    String topicDisableAtLowLimit;
+    String topicSetAllowBelow6AmpCharging;
     // Published state topics for configuration/status
     String topicDisableAtLowLimitState;
     String topicLowLimitResumeDelay;
@@ -168,6 +169,7 @@ private:
     float lastCurrentL1 = -1;
     float lastCurrentL2 = -1;
     float lastCurrentL3 = -1;
+    float lastCurrentLimit = -1;
     float lastPwmDuty = -1;
     bool lastRcmTripped = false;
     bool lastRcmEnabled = true;

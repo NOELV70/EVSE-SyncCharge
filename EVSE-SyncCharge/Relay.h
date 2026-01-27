@@ -1,6 +1,6 @@
 /*****************************************************************************
  * @file Relay.h
- * @brief Small helper to control the hardware relay with safety timing.
+ * Small helper to control the hardware relay with safety timing.
  *
  * @details
  * Declares `Relay` which provides delayed switching and immediate open

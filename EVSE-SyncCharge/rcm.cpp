@@ -90,8 +90,6 @@ bool Rcm::isTriggered()
 
     // Check if interrupt fired
     if (xSemaphoreTake(rcmSemaphore, 0) == pdTRUE) {
-        // Debounce / Noise filter
-        delay(1);
         if (digitalRead(PIN_RCM_IN) == HIGH) {
             return true;
         }

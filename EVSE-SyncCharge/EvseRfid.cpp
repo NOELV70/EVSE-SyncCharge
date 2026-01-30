@@ -133,7 +133,11 @@ void EvseRfid::saveTags() {
         obj["a"] = t.active;
     }
     String out; serializeJson(doc, out);
-    _prefs.putString("tags", out);
+    if (_prefs.putString("tags", out) == 0) {
+        logger.error("[RFID] Failed to save tags to NVS!");
+    } else {
+        logger.debugf("[RFID] Saved %d tags to NVS", _tags.size());
+    }
 }
 
 void EvseRfid::loadTags() {

@@ -60,6 +60,7 @@
 #include "OCPPHandler.h"
 #include "RGBWL2812.h"
 #include "EvseRfid.h"
+#include "EvseTelnet.h"
 
 #define BAUD_RATE 115200
 #define WDT_TIMEOUT 8 
@@ -71,6 +72,7 @@ EvseCharge evse(pilot);
 EvseMqttController mqttController(evse, pilot);
 OCPPHandler ocppHandler(evse, pilot);
 TaskHandle_t evseTaskHandle = NULL;
+EvseTelnet telnetServer;
 AppConfig config;
 WebController webController(evse, pilot, mqttController, ocppHandler, config);
 String deviceId;
@@ -130,8 +132,7 @@ void evseLoopTask(void* parameter) {
         // This ensures charging safety logic continues even if WiFi/Web UI freezes
         esp_task_wdt_reset();
 
-        if(pOtaUpdating)
-        if (*pOtaUpdating) {
+        if (pOtaUpdating && *pOtaUpdating) {
             logger.info("[EVSE_TASK] OTA Flag detected. Unregistering WDT...");
             esp_task_wdt_delete(NULL);
             logger.info("[EVSE_TASK] WDT Unregistered. Deleting task...");
@@ -195,16 +196,18 @@ void setup() {
 
 
 
-  Serial.println("Default SPI Pins:");
-  Serial.print("MOSI: "); Serial.println(MOSI);
-  Serial.print("MISO: "); Serial.println(MISO);
-  Serial.print("SCK: ");  Serial.println(SCK);
-  Serial.print("SS: ");   Serial.println(SS);
-
+#ifdef DEBUG_SPI_PINS
+    Serial.println("Default SPI Pins:");
+    Serial.print("MOSI: "); Serial.println(MOSI);
+    Serial.print("MISO: "); Serial.println(MISO);
+    Serial.print("SCK: ");  Serial.println(SCK);
+    Serial.print("SS: ");   Serial.println(SS);
+#endif
 
     ChargingSettings cs;
     cs.maxCurrent = config.maxCurrent; 
     cs.disableAtLowLimit = !config.allowBelow6AmpCharging; // Invert logic for internal struct
+    cs.softStart = config.softStart;
     cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
 
     // Link MQTT Failsafe commands to AppConfig
@@ -264,6 +267,10 @@ void setup() {
             webController.begin(deviceId, false);
         }
     }
+
+    // Initialize Telnet (loads its own config from NVS)
+    telnetServer.begin(config);
+    logger.setSecondaryOutput(&telnetServer);
 
     // --- HARDWARE INITIALIZATION ---
     // Moved here to prevent Cache Error crashes during WiFi/NVS initialization.
@@ -328,6 +335,7 @@ void loop() {
 
     webController.loop();
     rfid.loop();
+    telnetServer.loop();
     if (config.mqttEnabled) mqttController.loop();
     if (config.ocppEnabled) ocppHandler.loop();
     ArduinoOTA.handle();

@@ -53,7 +53,7 @@ void EvseCharge::loop() {
     // Safety: Check Residual Current Monitor
     if (rcmEnabled && rcm.isTriggered()) {
         logger.error("[EVSE] CRITICAL: RCM Fault Detected! Emergency Stop.");
-        relay->openImmediately();
+        relay->open();
         stopCharging();
         rcmTripped = true;
         if (!errorLockout) {
@@ -73,7 +73,7 @@ void EvseCharge::loop() {
             logger.error("[EVSE] Periodic RCM test FAILED! Entering Lockout.");
             rcmTripped = true;
             errorLockout = true;
-            relay->openImmediately();
+            relay->open();
         }
     }
 
@@ -87,7 +87,7 @@ void EvseCharge::loop() {
     if (throttleAliveTimeout > 0 && state == STATE_CHARGING) {
         unsigned long now = millis();
         if ((now - lastThrottleAliveTime) > (throttleAliveTimeout * 1000UL)) {
-            // Data is stale. Check if we need to ramp down.
+            // Data is stale. Ramp down to minimum current.
             if (currentLimit > 6.0f) {
                 // Ramp down by 1A every 5 seconds
                 if (now - lastThrottleRampTime >= 5000UL) {
@@ -158,7 +158,7 @@ void EvseCharge::startCharging() {
             logger.error("[EVSE] Pre-charge RCM test FAILED. Aborting charge.");
             rcmTripped = true;
             errorLockout = true;
-            relay->openImmediately();
+            relay->open();
             return;
         }
         logger.info("[EVSE] Pre-charge RCM test PASSED.");
@@ -172,13 +172,27 @@ void EvseCharge::startCharging() {
     started = millis();
     userPaused = false; // Clear pause flag on start/resume
     lastThrottleAliveTime = millis(); // Reset ThrottleAlive timer on start
+
+    // Soft-Start: If enabled, start at minimum current (6A)
+    // This allows external controllers to ramp up current safely.
+    if (settings.softStart) {
+        logger.info("[EVSE] Soft-start active (Resetting to 6A)");
+        currentLimit = MIN_CURRENT;
+    }
+
     applyCurrentLimit();
     if (stateChange) stateChange();
 }
 
 void EvseCharge::stopCharging() {
     logger.info("[EVSE] stopCharging() called");
-    relay->openImmediately();
+    
+    // SAFETY: J1772 requires PWM to +12V FIRST, then open relay
+    // This signals vehicle to stop drawing current before power is cut
+    // Prevents arcing and contactor wear from opening under load
+    pilot->standby();
+    relay->open();
+    
     if (state != STATE_CHARGING) {
         userPaused = false; // Ensure pause flag is cleared if we force stop from non-charging state
         logger.warn("[EVSE] Stop ignored: Not charging");
@@ -194,9 +208,9 @@ void EvseCharge::stopCharging() {
 void EvseCharge::pauseCharging() {
     if (state == STATE_CHARGING) {
         logger.info("[EVSE] pauseCharging() called");
-        // We call stopCharging logic manually here to avoid clearing the userPaused flag
-        // which stopCharging() normally does.
-        relay->openImmediately();
+        // SAFETY: J1772 requires PWM to +12V FIRST, then open relay
+        pilot->standby();
+        relay->open();
         state = STATE_READY;
         userPaused = true;
         if (stateChange) stateChange();
@@ -364,11 +378,8 @@ void EvseCharge::applyCurrentLimit() {
                 // Relay controlled per configuration; resume after delay
                 pilot->currentLimit(currentLimit);  // Keep PWM, just lower duty
                 
-                if (settings.acRelaisOpenAtPause) {
-                    relay->openImmediately();
-                } else {
-                    relay->open();
-                }
+                relay->open();
+
                 if (!pausedAtLowLimit) {
                     logger.infof("[EVSE] Low power pause: PWM set to %.2f A (solar budget insufficient)", currentLimit);
                     pausedAtLowLimit = true;
@@ -474,9 +485,10 @@ void EvseCharge::managePwmAndRelay() {
         case VEHICLE_READY:
             // State C: Vehicle ready for charging
             if (state == STATE_CHARGING) {
-                // Apply current limit and close relay
-                pilot->currentLimit(currentLimit);
+                // SAFETY: Only apply PWM after relay is confirmed closed
+                // This ensures vehicle only sees "power available" when power IS available
                 relay->close();
+                pilot->currentLimit(currentLimit);
             } else {
                 // Not charging: Force DC Standby. Tells car "Wait".
                 pilot->standby();
@@ -486,9 +498,7 @@ void EvseCharge::managePwmAndRelay() {
             
         case VEHICLE_READY_VENTILATION_REQUIRED:
             // State D: Vehicle ready with ventilation requirement
-            //logger.info("[EVSE] Vehicle ventilation mode detected");
             if (state == STATE_CHARGING) {
-                // Apply current limit and close relay
                 pilot->currentLimit(currentLimit);
                 relay->close();
             } else {
@@ -507,7 +517,7 @@ void EvseCharge::managePwmAndRelay() {
         case VEHICLE_ERROR:
             // State E/F: Error condition - emergency stop
             pilot->standby();
-            relay->openImmediately();
+            relay->open();
             break;
             
         default:

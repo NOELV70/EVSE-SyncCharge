@@ -19,6 +19,9 @@
 #include <esp_task_wdt.h>
 #include "RGBWL2812.h"
 #include "EvseRfid.h"
+#include "EvseTelnet.h"
+
+extern EvseTelnet telnetServer;
 
 WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config)
     : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), apMode(false), _rebootPending(false), _rebootTimestamp(0) {}
@@ -49,6 +52,7 @@ void WebController::begin(const String& deviceId, bool apMode) {
     webServer.on("/config/wifi", HTTP_GET, [this](){ handleConfigWifi(); });
     webServer.on("/config/ocpp", HTTP_GET, [this](){ handleConfigOcpp(); });
     webServer.on("/config/led", HTTP_GET, [this](){ handleConfigLed(); });
+    webServer.on("/config/telnet", HTTP_GET, [this](){ handleConfigTelnet(); });
     webServer.on("/config/auth", HTTP_GET, [this](){ handleConfigAuth(); });
     webServer.on("/saveConfig", HTTP_POST, [this](){ handleSaveConfig(); });
     webServer.on("/cmd", HTTP_GET, [this](){ handleCmd(); });
@@ -103,20 +107,23 @@ void WebController::begin(const String& deviceId, bool apMode) {
 
         // Tag List
         h += "<h3>Authorized Tags</h3><div style='overflow-x:auto'><table style='width:100%; border-collapse:collapse; color:#ccc;'>";
-        h += "<tr style='background:#333; text-align:left'><th style='padding:10px'>UID</th><th style='padding:10px'>Name</th><th style='padding:10px'>Action</th></tr>";
+        h += "<tr style='background:#333; text-align:left'><th style='padding:10px'>UID</th><th style='padding:10px'>Name</th><th style='padding:10px'>Status</th><th style='padding:10px'>Actions</th></tr>";
         std::vector<RfidTag> tags = rfid.getTags();
         for(const auto& t : tags) {
             h += "<tr style='border-bottom:1px solid #444;'>";
             h += "<td style='padding:10px; font-family:monospace'>" + t.uid + "</td>";
             h += "<td style='padding:10px'>" + t.name + "</td>";
-            h += "<td style='padding:10px'><form method='POST' action='/rfid/delete' onsubmit=\"return confirm('Delete " + t.name + "?');\"><input type='hidden' name='uid' value='" + t.uid + "'><button type='submit' class='btn btn-red' style='padding:5px 10px; margin:0; width:auto; font-size:0.8em'>DEL</button></form></td>";
-            h += "</tr>";
+            h += "<td style='padding:10px'>" + String(t.active ? "<span style='color:#4caf50'>&#10004; Active</span>" : "<span style='color:#888'>&#10008; Inactive</span>") + "</td>";
+            h += "<td style='padding:10px; white-space:nowrap'>";
+            h += "<form method='POST' action='/rfid/toggle' style='display:inline'><input type='hidden' name='uid' value='" + t.uid + "'><button type='submit' class='btn' style='padding:5px 10px; margin:0 5px 0 0; width:auto; font-size:0.8em; background:" + String(t.active ? "#ff9800" : "#4caf50") + "'>" + String(t.active ? "DISABLE" : "ENABLE") + "</button></form>";
+            h += "<form method='POST' action='/rfid/delete' style='display:inline' onsubmit=\"return confirm('Delete " + t.name + "?');\"><input type='hidden' name='uid' value='" + t.uid + "'><button type='submit' class='btn btn-red' style='padding:5px 10px; margin:0; width:auto; font-size:0.8em'>DEL</button></form>";
+            h += "</td></tr>";
         }
         h += "</table></div>";
 
         h += "<div style='display:flex; gap:10px; margin-top:20px;'>";
-        h += "<button type='button' class='btn' onclick=\"document.getElementById('saveForm').submit();\">SAVE SETTINGS</button>";
-        h += "<a class='btn' style='background:#444; color:#fff; margin-top:0;' href='/settings'>BACK</a>";
+        h += "<button type='button' class='btn' style='flex:1; margin-top:0;' onclick=\"document.getElementById('saveForm').submit();\">SAVE SETTINGS</button>";
+        h += "<a class='btn' style='flex:1; background:#444; color:#fff; margin-top:0;' href='/settings'>BACK</a>";
         h += "</div>";
         h += "<style>@keyframes blink{50%{opacity:0.5}}</style></div></body></html>";
         webServer.send(200, "text/html", h);
@@ -124,6 +131,7 @@ void WebController::begin(const String& deviceId, bool apMode) {
 
     webServer.on("/rfid/save", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("en")) rfid.setEnabled(webServer.arg("en")=="1"); webServer.sendHeader("Location", "/settings", true); webServer.send(302, "text/plain", ""); });
     webServer.on("/rfid/add", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("uid")) rfid.addTag(webServer.arg("uid"), webServer.arg("name")); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
+    webServer.on("/rfid/toggle", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("uid")) rfid.toggleTagStatus(webServer.arg("uid")); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
     webServer.on("/rfid/delete", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("uid")) rfid.deleteTag(webServer.arg("uid")); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
     webServer.on("/rfid/learn", HTTP_GET, [this](){ if(checkAuth()) rfid.startLearning(); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
 
@@ -301,6 +309,7 @@ void WebController::handleSettingsMenu() {
     h += "<a href='/config/mqtt' class='btn'>MQTT CONFIGURATION</a>";
     h += "<a href='/config/ocpp' class='btn'>OCPP CONFIGURATION</a>";
     h += "<a href='/config/led' class='btn'>LED CONFIGURATION</a>";
+    h += "<a href='/config/telnet' class='btn'>TELNET CONSOLE</a>";
     h += "<a href='/config/rfid' class='btn'>RFID MANAGEMENT</a>";
     h += "<a href='/config/auth' class='btn btn-red'>ADMIN SECURITY</a>";
     h += "<a href='/update' class='btn' style='background:#004d40; color:#fff;'>FLASH FIRMWARE</a></div>";
@@ -314,6 +323,7 @@ void WebController::handleConfigEvse() {
     String h = String("<!DOCTYPE html><html><head><title>EVSE Config</title>") + dashStyle + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<label>Max Current (A)<input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
     h += "<label>Allow Charging < 6A?<select name='allowlow'><option value='0' "+String(!config.allowBelow6AmpCharging?"selected":"")+">No (Strict J1772)</option><option value='1' "+String(config.allowBelow6AmpCharging?"selected":"")+">Yes (Solar/Throttle)</option></select></label>";
+    h += "<label>Soft Start (Start at 6A)<select name='softstart'><option value='0' "+String(!config.softStart?"selected":"")+">No (Use Max Current)</option><option value='1' "+String(config.softStart?"selected":"")+">Yes</option></select></label>";
     h += "<label>Resume delay (ms)<input name='lldelay' type='number' value='"+String(config.lowLimitResumeDelayMs)+"'></label>";
     h += "<label>Solar / External Throttle Timeout (sec)<br><small>Throttle to 6A if no update (MQTT/OCPP) (0=Disable)</small><input name='solto' type='number' value='"+String(config.solarStopTimeout)+"'></label>";
     h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form>";
@@ -365,6 +375,19 @@ void WebController::handleConfigOcpp() {
     h += "</div>";
     h += "<button class='btn' type='submit'>SAVE & REBOOT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a>";
     h += "<script>function toggleOcpp(){var e=document.getElementById('ocppen').value=='1';var f=document.getElementById('ofields');var i=f.getElementsByTagName('input');var s=f.getElementsByTagName('select');for(var k=0;k<i.length;k++)i[k].disabled=!e;for(var k=0;k<s.length;k++)s[k].disabled=!e;f.style.opacity=e?'1':'0.5';}toggleOcpp();</script></div></body></html>";
+    webServer.send(200, "text/html", h);
+}
+
+void WebController::handleConfigTelnet() {
+    if (!checkAuth()) return;
+    String h = String("<!DOCTYPE html><html><head><title>Telnet Config</title>") + dashStyle + "</head><body><div class='container'><h1>Telnet Console</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    h += "<div class='stat'><b>Remote Logging</b><br>Connect via Telnet to view real-time logs. Uses same credentials as Web UI.</div>";
+    h += "<label>Enable Telnet<select name='ten' id='ten' onchange='toggleTelnet()'><option value='0' "+String(!telnetServer.isEnabled()?"selected":"")+">Disabled</option><option value='1' "+String(telnetServer.isEnabled()?"selected":"")+">Enabled</option></select></label>";
+    h += "<div id='tfields'>";
+    h += "<label>Port<input name='tport' type='number' value='"+String(telnetServer.getPort())+"'></label>";
+    h += "</div>";
+    h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a>";
+    h += "<script>function toggleTelnet(){var e=document.getElementById('ten').value=='1';var f=document.getElementById('tfields');var i=f.getElementsByTagName('input');for(var k=0;k<i.length;k++)i[k].disabled=!e;f.style.opacity=e?'1':'0.5';}toggleTelnet();</script></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
@@ -466,6 +489,7 @@ void WebController::handleSaveConfig() {
         float newMax = webServer.arg("maxcur").toFloat();
         config.maxCurrent = constrain(newMax, 6.0f, 80.0f);
         config.allowBelow6AmpCharging = (webServer.arg("allowlow") == "1");
+        config.softStart = (webServer.arg("softstart") == "1");
         config.lowLimitResumeDelayMs = webServer.arg("lldelay").toInt();
         config.solarStopTimeout = webServer.arg("solto").toInt();
     }
@@ -514,6 +538,11 @@ void WebController::handleSaveConfig() {
     if (webServer.hasArg("rcmen")) {
         config.rcmEnabled = (webServer.arg("rcmen") == "1");
         rebootRequired = true;
+    }
+    if (webServer.hasArg("ten")) {
+        bool en = (webServer.arg("ten") == "1");
+        uint16_t port = webServer.arg("tport").toInt();
+        telnetServer.updateConfig(en, port);
     }
     if (webServer.hasArg("wuser")) { config.wwwUser = webServer.arg("wuser"); config.wwwPass = webServer.arg("wpass"); }
     if (webServer.hasArg("ssid")) { 
@@ -619,9 +648,9 @@ void WebController::handleWifiReset() {
 
 void WebController::handleEvseReset() {
     if (!checkAuth()) return;
-    config.maxCurrent = 32.0f; config.rcmEnabled = true; config.allowBelow6AmpCharging = false; config.lowLimitResumeDelayMs = 300000UL;
+    config.maxCurrent = 32.0f; config.rcmEnabled = true; config.allowBelow6AmpCharging = false; config.softStart = false; config.lowLimitResumeDelayMs = 300000UL;
     saveConfig(config);
-    ChargingSettings cs; cs.maxCurrent = config.maxCurrent; cs.disableAtLowLimit = !config.allowBelow6AmpCharging; cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
+    ChargingSettings cs; cs.maxCurrent = config.maxCurrent; cs.disableAtLowLimit = !config.allowBelow6AmpCharging; cs.softStart = config.softStart; cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
     evse.setup(cs); evse.setRcmEnabled(config.rcmEnabled);
     webServer.sendHeader("Location", "/settings", true); webServer.send(302, "text/plain", "");
 }
@@ -680,3 +709,7 @@ void WebController::handleUpdateUpload() {
         }
     }
 }
+
+// Add declaration for the new handler method to avoid compiler errors if header isn't updated
+// Note: In a real scenario, you must add `void handleConfigTelnet();` to WebController.h
+// Since we cannot modify the header here, we rely on the implementation being present.

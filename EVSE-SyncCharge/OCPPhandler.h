@@ -66,6 +66,8 @@ private:
     unsigned long lastHeartbeat = 0;
     unsigned long heartbeatInterval = 60000; // 60 seconds
     bool connected = false;
+    uint32_t messageCounter = 0;  // Incrementing counter for unique message IDs
+    String bootNotificationMsgId;
 
     void wsEvent(WStype_t type, uint8_t* payload, size_t length);
     void onMessage(const String& rawMessage);
@@ -78,6 +80,9 @@ private:
     void sendHeartbeat();
     void sendStatusNotification();
     void sendMeterValues();
+
+    // Wrapper for all outgoing CALL messages - handles ID generation and logging
+    void sendCall(const char* action, JsonObject& payload);
 
     String sendAccepted(const String& messageId);
     String sendError(const String& messageId, const char* code, const char* desc);

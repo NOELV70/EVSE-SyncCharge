@@ -58,6 +58,7 @@ private:
     void handleConfigWifi();
     void handleConfigOcpp();
     void handleConfigLed();
+    void handleConfigTelnet();
     void handleConfigAuth();
     void handleSaveConfig();
     void handleCmd();

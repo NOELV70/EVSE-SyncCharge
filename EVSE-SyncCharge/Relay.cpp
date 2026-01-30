@@ -10,6 +10,7 @@
  */
 
 #include "Relay.h"
+#include "EvseLogger.h"
 
 /* =========================
  * Hardware constants
@@ -20,8 +21,8 @@ constexpr int PIN_RELAY_OUT = 16; // Digital output to control relay coil
 
 Relay::Relay()
         : _currentState(false),
-            _desiredState(false),
-            _lastCalledMillis(0UL)
+          _desiredState(false),
+          _lastSwitchTime(0UL)
 {
 }
 
@@ -32,35 +33,38 @@ void Relay::setup(bool initialState)
 
     pinMode(PIN_RELAY_OUT, OUTPUT);
     digitalWrite(PIN_RELAY_OUT, initialState);
+    logger.infof("[RELAY] Initialized: %s", initialState ? "CLOSED" : "OPEN");
 }
 
 void Relay::loop()
 {
     if (_desiredState != _currentState)
     {
-        if ((millis() - _lastCalledMillis) >= RELAY_SWITCH_DELAY)
+        // Anti-chatter: only switch if enough time has passed since the last physical switch.
+        // The check for _lastSwitchTime == 0 allows the very first switch to be immediate.
+        // We also allow immediate OPEN (LOW) for safety and responsiveness.
+        if (_desiredState == LOW || _lastSwitchTime == 0 || (millis() - _lastSwitchTime) >= RELAY_SWITCH_DELAY)
         {
             _currentState = _desiredState;
             digitalWrite(PIN_RELAY_OUT, _currentState);
+            logger.infof("[RELAY] Switched to %s", _currentState ? "CLOSED" : "OPEN");
+            _lastSwitchTime = millis(); // Record the time of this switch
         }
     }
 }
 
-void Relay::openImmediately()
-{
-    _desiredState = LOW;
-    _currentState = LOW;
-    digitalWrite(PIN_RELAY_OUT, LOW);
-}
-
 void Relay::open()
 {
-    _desiredState = LOW;
-    _lastCalledMillis = millis();
+    if (_desiredState != LOW) {
+        _desiredState = LOW;
+        logger.debug("[RELAY] Open requested");
+    }
 }
 
 void Relay::close()
 {
-    _desiredState = HIGH;
-    _lastCalledMillis = millis();
+    if (_desiredState != HIGH) {
+        _desiredState = HIGH;
+        logger.debug("[RELAY] Close requested");
+    }
 }

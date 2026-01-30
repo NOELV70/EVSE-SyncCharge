@@ -29,6 +29,7 @@ enum LogLevel {
 class EvseLogger {
 private:
     Stream* output;  // Can be Serial, Telnet, or something else
+    Print* secondaryOutput = nullptr; // For Telnet
 
     // Helper method to handle formatting for all *f methods
     void logfImpl(LogLevel level, const char* fmt, va_list args) {
@@ -47,6 +48,7 @@ public:
         char ts[32];
         snprintf(ts, sizeof(ts), "[%lu.%06lu] ", s, us);
         output->print(ts);
+        if (secondaryOutput) secondaryOutput->print(ts);
 
         const char* prefix = "";
         switch (level) {
@@ -57,6 +59,11 @@ public:
         }
         output->print(prefix);
         output->println(msg);
+        
+        if (secondaryOutput) {
+            secondaryOutput->print(prefix);
+            secondaryOutput->println(msg);
+        }
     }
 
     void logf(LogLevel level, const char* fmt, ...) {
@@ -103,6 +110,11 @@ public:
     // Redirect output to different stream
     void setOutput(Stream& out) {
         output = &out;
+    }
+
+    // Attach Telnet or other Print interface
+    void setSecondaryOutput(Print* out) {
+        secondaryOutput = out;
     }
 };
 

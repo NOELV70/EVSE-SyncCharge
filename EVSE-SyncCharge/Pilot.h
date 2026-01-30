@@ -37,12 +37,17 @@ constexpr float J1772_LOW_RANGE_FACTOR     = 0.6f;
 constexpr float J1772_HIGH_RANGE_FACTOR    = 2.5f;
 constexpr float J1772_HIGH_RANGE_OFFSET    = 64.0f;
 
-// Voltage thresholds (MilliVolts) based on board_config style
-constexpr int VOLTAGE_STATE_NOT_CONNECTED = 10600; 
-constexpr int VOLTAGE_STATE_CONNECTED     =  8000;
-constexpr int VOLTAGE_STATE_READY         =  5000;
-constexpr int VOLTAGE_STATE_VENTILATION   =  2000;
-constexpr int VOLTAGE_STATE_N12V_THRESHOLD = 1000; // Threshold to verify -12V swing
+// Voltage thresholds (MilliVolts) based on SAE J1772 states after voltage divider
+// State A: +12V (No vehicle) -> ~10.6V after divider
+// State B: +9V  (Vehicle detected, not ready) -> ~8.0V after divider  
+// State C: +6V  (Vehicle ready, charging) -> ~5.0V after divider
+// State D: +3V  (Ventilation required) -> ~2.0V after divider
+// State E/F: 0V/-12V (No power / Fault)
+constexpr int VOLTAGE_STATE_NOT_CONNECTED = 10600;  // J1772 State A threshold
+constexpr int VOLTAGE_STATE_CONNECTED     =  8000;  // J1772 State B threshold
+constexpr int VOLTAGE_STATE_READY         =  5000;  // J1772 State C threshold
+constexpr int VOLTAGE_STATE_VENTILATION   =  2000;  // J1772 State D threshold
+constexpr int VOLTAGE_STATE_N12V_THRESHOLD = 1000;  // Diode check: verify -12V swing present
 
 
 

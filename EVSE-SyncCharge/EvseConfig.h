@@ -33,6 +33,7 @@ struct AppConfig {
     String wwwUser = "admin";
     String wwwPass = "admin";
     bool allowBelow6AmpCharging = false; // Default false = Strict J1772
+    bool softStart = false;
     bool pauseImmediate = true;
     unsigned long lowLimitResumeDelayMs = 300000UL;
     float maxCurrent = 32.0f;

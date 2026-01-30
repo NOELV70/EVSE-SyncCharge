@@ -116,22 +116,41 @@ void OCPPHandler::onMessage(const String& rawMessage) {
         return;
     }
 
+    int msgType = doc[0];
+
     // OCPP Message Type 2 = CALL
-    if (doc[0] != 2) return; 
+    if (msgType == 2) {
+        String messageId = doc[1];
+        String action = doc[2];
+        JsonObject payload = doc[3];
 
-    String messageId = doc[1];
-    String action = doc[2];
-    JsonObject payload = doc[3];
-
-    if (action == "SetChargingProfile") {
-        handleSetChargingProfile(messageId, payload);
-    } else if (action == "RemoteStartTransaction") {
-        handleRemoteStartTransaction(messageId, payload);
-    } else if (action == "RemoteStopTransaction") {
-        handleRemoteStopTransaction(messageId, payload);
-    } else {
-        String err = sendError(messageId, "NotImplemented", "Action not supported");
-        webSocket.sendTXT(err);
+        if (action == "SetChargingProfile") {
+            handleSetChargingProfile(messageId, payload);
+        } else if (action == "RemoteStartTransaction") {
+            handleRemoteStartTransaction(messageId, payload);
+        } else if (action == "RemoteStopTransaction") {
+            handleRemoteStopTransaction(messageId, payload);
+        } else {
+            String err = sendError(messageId, "NotImplemented", "Action not supported");
+            webSocket.sendTXT(err);
+        }
+    } else if (msgType == 3) {
+        String id = doc[1];
+        if (id == bootNotificationMsgId) {
+            JsonObject payload = doc[2];
+            if (payload["interval"].is<int>()) {
+                int interval = payload["interval"];
+                if (interval > 0) {
+                    heartbeatInterval = (unsigned long)interval * 1000UL;
+                    logger.infof("[OCPP] BootNotification: Heartbeat updated to %ds", interval);
+                }
+            }
+            bootNotificationMsgId = "";
+        } else {
+            logger.info("[OCPP] Server accepted request");
+        }
+    } else if (msgType == 4) {
+        logger.warnf("[OCPP] Server Error: %s", doc[2].as<const char*>());
     }
 }
 
@@ -174,32 +193,17 @@ void OCPPHandler::handleRemoteStopTransaction(const String& messageId, JsonObjec
 }
 
 void OCPPHandler::sendBootNotification() {
-    // [2, "id", "BootNotification", { "chargePointVendor": "...", "chargePointModel": "..." }]
     JsonDocument doc;
-    String msgId = String(millis());
-    doc.add(2);
-    doc.add(msgId);
-    doc.add("BootNotification");
-    JsonObject payload = doc.add<JsonObject>();
-    payload["chargePointVendor"] = "EvseSimplified";
-    payload["chargePointModel"] = "ESP32-EVSE";
-    
-    String output;
-    serializeJson(doc, output);
-    webSocket.sendTXT(output);
+    JsonObject payload = doc.to<JsonObject>();
+    payload["chargePointVendor"] = "EvseSyncCharge";
+    payload["chargePointModel"] = "NVL-EVSE";
+    sendCall("BootNotification", payload);
 }
 
 void OCPPHandler::sendHeartbeat() {
     JsonDocument doc;
-    String msgId = String(millis());
-    doc.add(2);
-    doc.add(msgId);
-    doc.add("Heartbeat");
-    doc.add<JsonObject>(); // Empty payload
-    
-    String output;
-    serializeJson(doc, output);
-    webSocket.sendTXT(output);
+    JsonObject payload = doc.to<JsonObject>();
+    sendCall("Heartbeat", payload);
 }
 
 void OCPPHandler::sendStatusNotification() {
@@ -208,6 +212,29 @@ void OCPPHandler::sendStatusNotification() {
 
 void OCPPHandler::sendMeterValues() {
     // Placeholder
+}
+
+void OCPPHandler::sendCall(const char* action, JsonObject& payload) {
+    // OCPP CALL: [2, "messageId", "Action", {payload}]
+    JsonDocument doc;
+    
+    if (++messageCounter == 0) ++messageCounter;
+
+    String msgId = String(messageCounter);
+    
+    if (strcmp(action, "BootNotification") == 0) {
+        bootNotificationMsgId = msgId;
+    }
+
+    doc.add(2);
+    doc.add(msgId);
+    doc.add(action);
+    doc.add(payload);
+    
+    String output;
+    serializeJson(doc, output);
+    webSocket.sendTXT(output);
+    logger.debugf("[OCPP] Tx #%s: %s", msgId.c_str(), action);
 }
 
 String OCPPHandler::sendAccepted(const String& messageId) {

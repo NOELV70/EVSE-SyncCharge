@@ -32,6 +32,7 @@ void loadConfig(AppConfig &config) {
     config.wwwUser  = prefs.getString("w_user", "admin");
     config.wwwPass  = prefs.getString("w_pwd",  "admin");
     config.allowBelow6AmpCharging = prefs.getBool("e_allow_low", false);
+    config.softStart = prefs.getBool("e_soft_start", false);
     config.pauseImmediate = prefs.getBool("e_pause_im", true);
     config.lowLimitResumeDelayMs = prefs.getULong("e_res_delay", 300000UL);
     config.maxCurrent = prefs.getFloat("e_max_cur", 32.0f);
@@ -68,6 +69,7 @@ void saveConfig(const AppConfig &config) {
     prefs.putString("m_user", config.mqttUser); prefs.putString("m_pass", config.mqttPass);
     prefs.putString("w_user", config.wwwUser); prefs.putString("w_pwd",  config.wwwPass);
     prefs.putBool("e_allow_low", config.allowBelow6AmpCharging); prefs.putBool("e_pause_im", config.pauseImmediate);
+    prefs.putBool("e_soft_start", config.softStart);
     prefs.putULong("e_res_delay", config.lowLimitResumeDelayMs); prefs.putFloat("e_max_cur", config.maxCurrent);
     prefs.putBool("m_safe", config.mqttFailsafeEnabled);
     prefs.putULong("m_safe_t", config.mqttFailsafeTimeout);

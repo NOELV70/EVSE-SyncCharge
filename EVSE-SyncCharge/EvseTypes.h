@@ -53,6 +53,7 @@ struct ChargingSettings {
     // resume automatically.
     // Enabled by default to pause pilot when current limit is below safe minimum.
     bool disableAtLowLimit = true;
+    bool softStart = true;
     // Delay (milliseconds) to wait after pausing due to low current before
     // automatically resuming PWM when the current limit is raised above
     // MIN_CURRENT. Default is 5 minutes (300000 ms) to avoid rapid toggling.

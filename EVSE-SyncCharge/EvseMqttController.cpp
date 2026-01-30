@@ -334,57 +334,57 @@ void EvseMqttController::publishHADiscovery()
 
     // --- Sensor: Current ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_current/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Current\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"unique_id\":\"%s_current\"}",
-             topicCurrent.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Current\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"unique_id\":\"%s_current\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicCurrent.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: PWM Duty ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_pwm/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Duty\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"unique_id\":\"%s_pwm\"}",
-             topicPwmDuty.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Duty\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"unique_id\":\"%s_pwm\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: Vehicle State ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_vehicle/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Vehicle\",\"state_topic\":\"%s\",\"unique_id\":\"%s_vehicle\"}",
-             topicVehicle.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Vehicle\",\"state_topic\":\"%s\",\"unique_id\":\"%s_vehicle\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicVehicle.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: PWM Test for HA slider ---
     // --- Switch: PWM Test enable/disable ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_pwm_test_switch/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Test Switch\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"enable\",\"payload_off\":\"disable\",\"unique_id\":\"%s_pwm_test_switch\"}",
-             topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Test Switch\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"enable\",\"payload_off\":\"disable\",\"unique_id\":\"%s_pwm_test_switch\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: PWM Test for HA slider (sends percent to test topic) ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_pwm_test/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Test\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"min\":0,\"max\":100,\"step\":1,\"unique_id\":\"%s_pwm_test\"}",
-             topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Test\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"min\":0,\"max\":100,\"step\":1,\"unique_id\":\"%s_pwm_test\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Switch: Failsafe Enable ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_failsafe/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE MQTT Failsafe\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_failsafe\"}",
-             topicSetFailsafe.c_str(), topicFailsafeState.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE MQTT Failsafe\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_failsafe\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicSetFailsafe.c_str(), topicFailsafeState.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: Failsafe Timeout ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_failsafe_t/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Failsafe Timeout\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"s\",\"min\":10,\"max\":3600,\"unique_id\":\"%s_failsafe_t\"}",
-             topicSetFailsafeTimeout.c_str(), topicFailsafeTimeoutState.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Failsafe Timeout\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"s\",\"min\":10,\"max\":3600,\"unique_id\":\"%s_failsafe_t\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicSetFailsafeTimeout.c_str(), topicFailsafeTimeoutState.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Binary Sensor: RCM Fault ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/binary_sensor/%s_rcm_fault/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE RCM Fault\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"device_class\":\"safety\",\"unique_id\":\"%s_rcm_fault\"}",
-             topicRcmFault.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE RCM Fault\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"device_class\":\"safety\",\"unique_id\":\"%s_rcm_fault\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicRcmFault.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Switch: RCM Enable ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_rcm_enable/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE RCM Protection\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_rcm_enable\"}",
-             topicRcmConfig.c_str(), topicRcmState.c_str(), deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE RCM Protection\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_rcm_enable\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicRcmConfig.c_str(), topicRcmState.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     logger.info("[MQTT] HA discovery published");

@@ -22,7 +22,7 @@ class Relay
 private:
     bool _currentState;
     bool _desiredState;
-    unsigned long _lastCalledMillis;
+    unsigned long _lastSwitchTime;
 
 public:
     Relay();
@@ -30,9 +30,13 @@ public:
     void setup(bool initialState);
     void loop();
 
-    void openImmediately();
     void open();
     void close();
+    
+    // Status getters for safety sequencing
+    bool isClosed() const { return _currentState == HIGH; }
+    bool isOpen() const { return _currentState == LOW; }
+    bool isPending() const { return _desiredState != _currentState; }
 };
 
 #endif // RELAY_H_

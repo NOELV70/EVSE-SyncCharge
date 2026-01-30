@@ -133,7 +133,7 @@ void Pilot::standby()
     pinMode(PIN_PILOT_PWM_OUT, OUTPUT);
 
     if(pwmAttached) {
-        logger.debug("[PILOT] Detaching PWM for Standby (Static HIGH)");
+        logger.info("[PILOT] Detaching PWM for Standby (Static HIGH)");
         pwmAttached = false;
         ledcDetach(PIN_PILOT_PWM_OUT);
     }    
@@ -160,13 +160,22 @@ void Pilot::stop()
 void Pilot::currentLimit(float amps)
 {
     float dutyPercent = ampsToDuty(amps);
+
+    // Prevent log flooding: only update if value changed or PWM was off
+    if (pwmAttached && fabs(currentDutyPercent - dutyPercent) < 0.05f) {
+        return;
+    }
+
     currentDutyPercent = dutyPercent;
 
     uint32_t dutyCounts = (uint32_t)roundf((dutyPercent / 100.0f) * PILOT_PWM_MAX_DUTY);
 
     if(!pwmAttached) {
+        logger.infof("[PILOT] PWM Enabled: %.2f A (Duty: %.1f%%)", amps, dutyPercent);
         ledcAttach(PIN_PILOT_PWM_OUT, PILOT_PWM_FREQ, PILOT_PWM_RESOLUTION);
         pwmAttached = true;
+    } else {
+        logger.infof("[PILOT] PWM Adjusted: %.2f A (Duty: %.1f%%)", amps, dutyPercent);
     }
     ledcWrite(PIN_PILOT_PWM_OUT, dutyCounts);
 }

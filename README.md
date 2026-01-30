@@ -40,7 +40,7 @@ Universal Connectivity
 Intelligent Energy Management
 Turn your EV into a grid-stabilizing asset.
 
-Solar Excess Charging: Supports dynamic amperage adjustment (6A–80A) in real-time. 
+Solar Excess Charging: Supports dynamic amperage adjustment (6A–64A) in real-time. 
 The unique "Solar Throttle" mode allows the system to modulate charging power to match solar production curve perfectly.
 
 Dynamic Load Balancing: Real-time API endpoints allow external energy meters to throttle the EVSE instantly when household loads (like heat pumps or ovens) peak.
@@ -61,3 +61,6 @@ Why EVSE-SyncCharge?
 <img width="578" height="894" alt="image" src="https://github.com/user-attachments/assets/615cf967-1121-4093-954a-ca737cb721dd" />
 <img width="544" height="877" alt="image" src="https://github.com/user-attachments/assets/2cb59e41-261e-4c45-a2f2-ec754b5e7882" />
 <img width="522" height="730" alt="image" src="https://github.com/user-attachments/assets/e8977c46-8974-4426-9abe-26caa5f04311" />
+<img width="432" height="895" alt="image" src="https://github.com/user-attachments/assets/2c37baa7-36bf-4647-b4c2-8c43871fd1a0" />
+<img width="462" height="717" alt="image" src="https://github.com/user-attachments/assets/9486444c-4c0a-4d8c-b392-407ee8619fe5" />
+

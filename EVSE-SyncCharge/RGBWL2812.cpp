@@ -12,7 +12,38 @@
 #include "RGBWL2812.h"
 #include <Preferences.h>
 
+// =============================================================================
+// LED Effect and Color Name Lookup Tables (single source of truth)
+// =============================================================================
+
+static const char* const LED_EFFECT_NAMES[] = {
+    "OFF", "SOLID", "BLINK SLOW", "BLINK FAST", "BREATH", "RAINBOW",
+    "KNIGHT RIDER", "CHASE", "SPARKLE", "THEATER CHASE", "FIRE", "WAVE",
+    "TWINKLE", "COLOR WIPE", "RAINBOW CHASE", "COMET", "PULSE", "STROBE"
+};
+static_assert(sizeof(LED_EFFECT_NAMES) / sizeof(LED_EFFECT_NAMES[0]) == EFF_COUNT, 
+              "LED_EFFECT_NAMES must match LedEffect enum count");
+
+static const char* const LED_COLOR_NAMES[] = {
+    "OFF", "RED", "GREEN", "BLUE", "YELLOW", "CYAN", "MAGENTA",
+    "WHITE", "ORANGE", "PURPLE", "PINK", "TEAL", "LIME", "INDIGO", "WARM WHITE"
+};
+static_assert(sizeof(LED_COLOR_NAMES) / sizeof(LED_COLOR_NAMES[0]) == COL_COUNT,
+              "LED_COLOR_NAMES must match LedColor enum count");
+
+const char* getLedEffectName(LedEffect effect) {
+    if (effect >= 0 && effect < EFF_COUNT) return LED_EFFECT_NAMES[effect];
+    return "UNKNOWN";
+}
+
+const char* getLedColorName(LedColor color) {
+    if (color >= 0 && color < COL_COUNT) return LED_COLOR_NAMES[color];
+    return "UNKNOWN";
+}
+
+// =============================================================================
 // Effect timing constants (milliseconds)
+// =============================================================================
 constexpr int TIMING_BLINK_SLOW = 1000;
 constexpr int TIMING_BLINK_FAST = 250;
 constexpr int TIMING_BREATH = 20;
@@ -51,6 +82,7 @@ RGBWL2812::RGBWL2812(int pin)
     _config.stateWifi      = {COL_BLUE, EFF_BLINK_SLOW};
     _config.stateBoot      = {COL_MAGENTA, EFF_RAINBOW};
     _config.stateSolarIdle = {COL_MAGENTA, EFF_BREATH};
+    _config.stateSafetyLockout = {COL_RED, EFF_STROBE};
     _config.stateRfidOk    = {COL_GREEN, EFF_BLINK_FAST};
     _config.stateRfidReject= {COL_RED, EFF_BLINK_FAST};
 }
@@ -83,6 +115,7 @@ void RGBWL2812::loadConfig() {
     loadState("s_wifi", _config.stateWifi, COL_BLUE, EFF_BLINK_SLOW);
     loadState("s_boot", _config.stateBoot, COL_MAGENTA, EFF_RAINBOW);
     loadState("s_solidle", _config.stateSolarIdle, COL_MAGENTA, EFF_BREATH);
+    loadState("s_lockout", _config.stateSafetyLockout, COL_RED, EFF_STROBE);
     loadState("s_rfidok", _config.stateRfidOk, COL_GREEN, EFF_BLINK_FAST);
     loadState("s_rfidnok", _config.stateRfidReject, COL_RED, EFF_BLINK_FAST);
     prefs.end();
@@ -106,6 +139,7 @@ void RGBWL2812::saveConfig() {
     saveState("s_wifi", _config.stateWifi);
     saveState("s_boot", _config.stateBoot);
     saveState("s_solidle", _config.stateSolarIdle);
+    saveState("s_lockout", _config.stateSafetyLockout);
     saveState("s_rfidok", _config.stateRfidOk);
     saveState("s_rfidnok", _config.stateRfidReject);
     prefs.end();
@@ -163,6 +197,7 @@ void RGBWL2812::loop() {
             case 4: currentSetting = _config.stateWifi; break;
             case 5: currentSetting = _config.stateBoot; break;
             case 6: currentSetting = _config.stateSolarIdle; break;
+            case 7: currentSetting = _config.stateSafetyLockout; break;
             default: 
                 _testMode = false; 
                 _currentTestStep = -1;
@@ -179,6 +214,7 @@ void RGBWL2812::loop() {
             case LED_ERROR:       currentSetting = _config.stateError; break;
             case LED_WIFI_CONFIG: currentSetting = _config.stateWifi; break;
             case LED_SOLAR_IDLE:  currentSetting = _config.stateSolarIdle; break;
+            case LED_SAFETY_LOCKOUT: currentSetting = _config.stateSafetyLockout; break;
             case LED_RFID_OK:     currentSetting = _config.stateRfidOk; break;
             case LED_RFID_REJECT: currentSetting = _config.stateRfidReject; break;
             default:              currentSetting = {COL_OFF, EFF_OFF}; break;
@@ -479,6 +515,13 @@ uint32_t RGBWL2812::getColor(LedColor c) {
         case COL_CYAN:    return _strip.Color(0, 255, 255);
         case COL_MAGENTA: return _strip.Color(255, 0, 255);
         case COL_WHITE:   return _strip.Color(255, 255, 255);
+        case COL_ORANGE:  return _strip.Color(255, 140, 0);
+        case COL_PURPLE:  return _strip.Color(128, 0, 128);
+        case COL_PINK:    return _strip.Color(255, 105, 180);
+        case COL_TEAL:    return _strip.Color(0, 128, 128);
+        case COL_LIME:    return _strip.Color(50, 205, 50);
+        case COL_INDIGO:  return _strip.Color(75, 0, 130);
+        case COL_WARM_WHITE: return _strip.Color(255, 220, 150);
         default:          return 0;
     }
 }

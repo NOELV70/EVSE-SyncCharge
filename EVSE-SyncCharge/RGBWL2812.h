@@ -32,7 +32,8 @@ enum LedEffect {
     EFF_RAINBOW_CHASE,  // Rainbow with chase
     EFF_COMET,          // Comet/shooting star
     EFF_PULSE,          // Pulse from center
-    EFF_STROBE          // Strobe effect
+    EFF_STROBE,         // Strobe effect
+    EFF_COUNT           // Number of effects (keep last!)
 }; 
 
 // LED Colors 
@@ -44,8 +45,22 @@ enum LedColor {
     COL_YELLOW,     // Yellow (Red + Green)
     COL_CYAN,       // Cyan (Green + Blue)
     COL_MAGENTA,    // Magenta (Red + Blue)
-    COL_WHITE       // White (Red + Green + Blue)
+    COL_WHITE,      // White (Red + Green + Blue)
+    COL_ORANGE,     // Orange
+    COL_PURPLE,     // Purple
+    COL_PINK,       // Pink
+    COL_TEAL,       // Teal
+    COL_LIME,       // Lime
+    COL_INDIGO,     // Indigo
+    COL_WARM_WHITE, // Warm White
+    COL_COUNT       // Number of colors (keep last!)
 }; 
+
+// Helper functions to get display names for enums (defined in RGBWL2812.cpp)
+const char* getLedEffectName(LedEffect effect);
+const char* getLedColorName(LedColor color);
+inline int getLedEffectCount() { return EFF_COUNT; }
+inline int getLedColorCount() { return COL_COUNT; } 
 
 struct LedStateSetting { 
     LedColor color; 
@@ -62,6 +77,7 @@ struct LedSettings {
     LedStateSetting stateWifi;      // AP Mode 
     LedStateSetting stateBoot;      // Boot 
     LedStateSetting stateSolarIdle; // Solar Throttling (<6A) 
+    LedStateSetting stateSafetyLockout; // Boot Loop / Safety Lockout
     LedStateSetting stateRfidOk;    // RFID Accepted
     LedStateSetting stateRfidReject;// RFID Rejected
 }; 
@@ -76,6 +92,7 @@ enum EvseLedState {
     LED_ERROR,       // Fast Blinking Red 
     LED_WIFI_CONFIG, // Slow Blinking Blue 
     LED_SOLAR_IDLE,  // Solar Idle / Low Power 
+    LED_SAFETY_LOCKOUT, // Boot Loop Lockout
     LED_RFID_OK,     // RFID Accepted
     LED_RFID_REJECT  // RFID Rejected
 }; 

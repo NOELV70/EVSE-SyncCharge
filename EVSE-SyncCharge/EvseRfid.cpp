@@ -40,6 +40,7 @@ void EvseRfid::begin(int ssPin, int rstPin, int buzzerPin) {
     
     _prefs.begin("evse-rfid", false);
     _enabled = _prefs.getBool("enabled", false);
+    _buzzerEnabled = _prefs.getBool("buzzer", true);
     loadTags();
     logger.infof("[RFID] Loaded %d tags from NVS.", _tags.size());
 }
@@ -54,7 +55,10 @@ bool EvseRfid::isEnabled() { return _enabled; }
 
 void EvseRfid::setBuzzerEnabled(bool enabled) {
     _buzzerEnabled = enabled;
+    _prefs.putBool("buzzer", enabled);
 }
+
+bool EvseRfid::isBuzzerEnabled() { return _buzzerEnabled; }
 
 void EvseRfid::startLearning() {
     _learning = true;
@@ -242,6 +246,3 @@ String EvseRfid::uidToHexString(byte *buffer, byte bufferSize) {
     res.toUpperCase();
     return res;
 }
-
-// Global Instance
-EvseRfid rfid;

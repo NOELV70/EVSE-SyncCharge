@@ -27,6 +27,7 @@ public:
     void setEnabled(bool enabled);
     bool isEnabled();
     void setBuzzerEnabled(bool enabled);
+    bool isBuzzerEnabled();
     
     void startLearning();
     bool isLearning();
@@ -68,7 +69,5 @@ private:
     
     String uidToHexString(byte *buffer, byte bufferSize);
 };
-
-extern EvseRfid rfid;
 
 #endif

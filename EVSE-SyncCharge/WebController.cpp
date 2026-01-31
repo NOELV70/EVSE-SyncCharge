@@ -18,16 +18,14 @@
 #include <esp_system.h>
 #include <esp_task_wdt.h>
 #include "RGBWL2812.h"
-#include "EvseRfid.h"
 #include "EvseTelnet.h"
 
 extern EvseTelnet telnetServer;
 
-WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config)
-    : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), apMode(false), _rebootPending(false), _rebootTimestamp(0) {}
+WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config, EvseRfid& rfid)
+    : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), rfid(rfid), apMode(false), _rebootPending(false), _rebootTimestamp(0) {}
 
 extern volatile bool g_otaUpdating;
-extern EvseRfid rfid;
 
 void WebController::begin(const String& deviceId, bool apMode) {
     this->deviceId = deviceId;
@@ -85,6 +83,8 @@ void WebController::begin(const String& deviceId, bool apMode) {
         h += "<form id='saveForm' method='POST' action='/rfid/save' style='margin-bottom:15px; padding:15px; background:#222; border-radius:8px;'>";
         h += "<label>RFID Reader Status</label>";
         h += "<select name='en'><option value='1' " + String(rfid.isEnabled()?"selected":"") + ">ENABLED</option><option value='0' " + String(!rfid.isEnabled()?"selected":"") + ">DISABLED</option></select>";
+        h += "<label>Buzzer Sound</label>";
+        h += "<select name='bz'><option value='1' " + String(rfid.isBuzzerEnabled()?"selected":"") + ">ENABLED</option><option value='0' " + String(!rfid.isBuzzerEnabled()?"selected":"") + ">DISABLED</option></select>";
         h += "</form>";
 
         // Learning Mode
@@ -133,10 +133,12 @@ void WebController::begin(const String& deviceId, bool apMode) {
 
     // RFID save: Enable/disable RFID reader
     webServer.on("/rfid/save", HTTP_POST, [this]() {
-        if (checkAuth() && webServer.hasArg("en")) {
-            rfid.setEnabled(webServer.arg("en") == "1");
+        if (checkAuth()) {
+            if (webServer.hasArg("en")) rfid.setEnabled(webServer.arg("en") == "1");
+            if (webServer.hasArg("bz")) rfid.setBuzzerEnabled(webServer.arg("bz") == "1");
         }
-        webServer.sendHeader("Location", "/settings", true);
+        // Redirect back to RFID config page to see changes
+        webServer.sendHeader("Location", "/config/rfid", true);
         webServer.send(302, "text/plain", "");
     });
     
@@ -253,7 +255,12 @@ void WebController::handleStatus() {
     json += "\"clim\":" + String(amps, 1) + ",";
     json += "\"pwm\":\"" + pwmStr + "\",";
     json += "\"pvolt\":" + String(pilot.getVoltage(), 2) + ",";
-    json += "\"acrel\":\"" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "\",";
+    
+    // Relay is only physically closed if Session is Active AND Vehicle is requesting power (State C/D)
+    bool relayClosed = (evse.getState() == STATE_CHARGING) && 
+                       (evse.getVehicleState() == VEHICLE_READY || evse.getVehicleState() == VEHICLE_READY_VENTILATION_REQUIRED);
+
+    json += "\"acrel\":\"" + String(relayClosed ? "CLOSED" : "OPEN") + "\",";
     json += "\"upt\":\"" + getUptime() + "\",";
     json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
     json += "\"state\":" + String((int)evse.getState()) + ",";
@@ -311,7 +318,11 @@ void WebController::handleRoot() {
     h += "<div class='stat'><b>VEHICLE STATE:</b> <span id='vst'>" + getVehicleStateText() + "</span></div>";
     h += "<div class='stat'><b>CURRENT LIMIT:</b> <span id='clim'>" + String(amps, 1) + "</span> A<br><b>PWM DUTY:</b> <span id='pwm'>" + pwmStr + "</span></div>";
     h += "<div class='stat'><b>PILOT VOLTAGE:</b> <span id='pvolt'>" + String(pilot.getVoltage(), 2) + "</span> V</div>";
-    h += "<div class='stat'><b>AC RELAY:</b> <span id='acrel'>" + String((evse.getState() == STATE_CHARGING) ? "CLOSED" : "OPEN") + "</span></div>";
+    
+    bool relayClosed = (evse.getState() == STATE_CHARGING) && 
+                       (evse.getVehicleState() == VEHICLE_READY || evse.getVehicleState() == VEHICLE_READY_VENTILATION_REQUIRED);
+
+    h += "<div class='stat'><b>AC RELAY:</b> <span id='acrel'>" + String(relayClosed ? "CLOSED" : "OPEN") + "</span></div>";
     
     bool connected = evse.isVehicleConnected();
     

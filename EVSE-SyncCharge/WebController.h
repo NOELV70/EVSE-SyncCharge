@@ -20,10 +20,11 @@
 #include "EvseMqttController.h"
 #include "EvseConfig.h"
 #include "OCPPHandler.h"
+#include "EvseRfid.h"
 
 class WebController {
 public:
-    WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config);
+    WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config, EvseRfid& rfid);
     
     void begin(const String& deviceId, bool apMode);
     void loop();
@@ -36,6 +37,7 @@ private:
     EvseMqttController& mqtt;
     OCPPHandler& ocpp;
     AppConfig& config;
+    EvseRfid& rfid;
     
     String deviceId;
     bool apMode;

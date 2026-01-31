@@ -55,6 +55,8 @@ public:
     void setRcmEnabled(bool enable);
     bool isRcmEnabled() const;
     bool isRcmTripped() const;
+    void setSafetyLockout(bool locked);
+    bool isSafetyLockoutActive() const;
 
     float getPilotDuty() const;
 

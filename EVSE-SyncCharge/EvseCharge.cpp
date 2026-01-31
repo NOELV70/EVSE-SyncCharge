@@ -82,6 +82,20 @@ void EvseCharge::loop() {
     managePwmAndRelay();           // SAE J1772 state machine
     checkResumeFromLowLimit();
 
+    // Auto-Start Logic (Power Loss Recovery)
+    // If the device reboots and detects a car immediately, we assume we should resume charging.
+    static bool bootRecoveryChecked = false;
+    if (!bootRecoveryChecked && !errorLockout && !rcmTripped && !userPaused) {
+        // Give the pilot some time to stabilize readings (e.g. 5 seconds)
+        if (millis() > 5000) {
+            if (state == STATE_READY && isVehicleConnected()) {
+                logger.info("[EVSE] Boot Recovery: Vehicle detected. Auto-starting charge...");
+                startCharging();
+            }
+            bootRecoveryChecked = true; 
+        }
+    }
+
     // ThrottleAlive Logic (Centralized Safety)
     // If enabled (>0) and charging, check if external control data is stale.
     if (throttleAliveTimeout > 0 && state == STATE_CHARGING) {
@@ -103,6 +117,10 @@ void EvseCharge::loop() {
             lastThrottleRampTime = now - 5000UL; 
         }
     }
+}
+
+bool EvseCharge::isSafetyLockoutActive() const {
+    return errorLockout;
 }
 
 void EvseCharge::updateVehicleState() {
@@ -134,8 +152,20 @@ void EvseCharge::startCharging() {
     // SAFETY: Error lockout prevents restart after watchdog/crash recovery
     // Must be explicitly cleared when vehicle transitions to VEHICLE_NOT_CONNECTED
     if (errorLockout) {
-        logger.warn("[EVSE] Start ignored: Error lockout ACTIVE - vehicle error/no-power detected (disconnect vehicle to clear)");
-        return;
+        // Industry Standard Behavior: Power Loss Recovery
+        // If the vehicle signal is valid (State B/C/D) and no RCM fault exists, 
+        // we treat this as a safe recovery from a reboot/power-cut.
+        bool isSignalValid = (vehicleState == VEHICLE_CONNECTED || 
+                              vehicleState == VEHICLE_READY || 
+                              vehicleState == VEHICLE_READY_VENTILATION_REQUIRED);
+
+        if (isSignalValid && !rcmTripped) {
+            logger.warn("[EVSE] Safety Lockout overridden by manual Start command. Resuming session...");
+            errorLockout = false;
+        } else {
+            logger.warn("[EVSE] Start ignored: Safety Lockout ACTIVE - Critical Fault or Invalid Pilot (disconnect vehicle to clear)");
+            return;
+        }
     }
     if (state == STATE_CHARGING) {
         logger.warn("[EVSE] Start ignored: Already charging");
@@ -542,4 +572,17 @@ bool EvseCharge::isRcmEnabled() const {
 
 bool EvseCharge::isRcmTripped() const {
     return rcmTripped;
+}
+
+void EvseCharge::setSafetyLockout(bool locked) {
+    if (errorLockout != locked) {
+        errorLockout = locked;
+        if (locked) {
+            logger.warn("[EVSE] Safety Lockout Externally ACTIVATED");
+            if (state == STATE_CHARGING) stopCharging();
+            relay->open();
+        } else {
+            logger.info("[EVSE] Safety Lockout Externally CLEARED");
+        }
+    }
 }

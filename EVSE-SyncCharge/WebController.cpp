@@ -74,7 +74,9 @@ void WebController::begin(const String& deviceId, bool apMode) {
     webServer.on("/update", HTTP_GET, [this](){ handleUpdate(); });
     webServer.on("/doUpdate", HTTP_POST, [this](){ handleDoUpdate(); }, [this](){ handleUpdateUpload(); });
     
-    // --- RFID Routes ---
+    // =========================================================================
+    // RFID Management Routes (inline lambdas for simple redirect handlers)
+    // =========================================================================
     webServer.on("/config/rfid", HTTP_GET, [this](){
         if (!checkAuth()) return;
         String h = "<!DOCTYPE html><html><head><title>RFID Config</title>" + String(dashStyle) + "</head><body><div class='container'><h1>RFID Configuration</h1>";
@@ -129,11 +131,50 @@ void WebController::begin(const String& deviceId, bool apMode) {
         webServer.send(200, "text/html", h);
     });
 
-    webServer.on("/rfid/save", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("en")) rfid.setEnabled(webServer.arg("en")=="1"); webServer.sendHeader("Location", "/settings", true); webServer.send(302, "text/plain", ""); });
-    webServer.on("/rfid/add", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("uid")) rfid.addTag(webServer.arg("uid"), webServer.arg("name")); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
-    webServer.on("/rfid/toggle", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("uid")) rfid.toggleTagStatus(webServer.arg("uid")); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
-    webServer.on("/rfid/delete", HTTP_POST, [this](){ if(checkAuth() && webServer.hasArg("uid")) rfid.deleteTag(webServer.arg("uid")); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
-    webServer.on("/rfid/learn", HTTP_GET, [this](){ if(checkAuth()) rfid.startLearning(); webServer.sendHeader("Location", "/config/rfid", true); webServer.send(302, "text/plain", ""); });
+    // RFID save: Enable/disable RFID reader
+    webServer.on("/rfid/save", HTTP_POST, [this]() {
+        if (checkAuth() && webServer.hasArg("en")) {
+            rfid.setEnabled(webServer.arg("en") == "1");
+        }
+        webServer.sendHeader("Location", "/settings", true);
+        webServer.send(302, "text/plain", "");
+    });
+    
+    // RFID add: Register a new authorized tag
+    webServer.on("/rfid/add", HTTP_POST, [this]() {
+        if (checkAuth() && webServer.hasArg("uid")) {
+            rfid.addTag(webServer.arg("uid"), webServer.arg("name"));
+        }
+        webServer.sendHeader("Location", "/config/rfid", true);
+        webServer.send(302, "text/plain", "");
+    });
+    
+    // RFID toggle: Enable/disable an existing tag
+    webServer.on("/rfid/toggle", HTTP_POST, [this]() {
+        if (checkAuth() && webServer.hasArg("uid")) {
+            rfid.toggleTagStatus(webServer.arg("uid"));
+        }
+        webServer.sendHeader("Location", "/config/rfid", true);
+        webServer.send(302, "text/plain", "");
+    });
+    
+    // RFID delete: Remove a tag from authorized list
+    webServer.on("/rfid/delete", HTTP_POST, [this]() {
+        if (checkAuth() && webServer.hasArg("uid")) {
+            rfid.deleteTag(webServer.arg("uid"));
+        }
+        webServer.sendHeader("Location", "/config/rfid", true);
+        webServer.send(302, "text/plain", "");
+    });
+    
+    // RFID learn: Start 10-second learning mode to capture new tag UIDs
+    webServer.on("/rfid/learn", HTTP_GET, [this]() {
+        if (checkAuth()) {
+            rfid.startLearning();
+        }
+        webServer.sendHeader("Location", "/config/rfid", true);
+        webServer.send(302, "text/plain", "");
+    });
 
     webServer.onNotFound([this](){ handleRoot(); });
     webServer.begin();
@@ -160,6 +201,10 @@ bool WebController::checkAuth() {
     return true;
 }
 
+/**
+ * @brief Formats system uptime as human-readable string
+ * @return String in format "Xd XXh XXm XXs"
+ */
 String WebController::getUptime() {
     unsigned long s = millis() / 1000;
     char buf[32];
@@ -167,6 +212,9 @@ String WebController::getUptime() {
     return String(buf);
 }
 
+/**
+ * @brief Returns human-readable description of last ESP32 reset cause
+ */
 String WebController::getRebootReason() {
     esp_reset_reason_t reason = esp_reset_reason();
     switch (reason) {
@@ -179,14 +227,23 @@ String WebController::getRebootReason() {
     }
 }
 
+/**
+ * @brief Converts current vehicle state enum to display text
+ */
 String WebController::getVehicleStateText() {
     char buffer[50];
     vehicleStateToText(evse.getVehicleState(), buffer);
     return String(buffer);
 }
 
-// --- Handlers ---
+// =============================================================================
+// HTTP Route Handlers
+// =============================================================================
 
+/**
+ * @brief Returns JSON status data for AJAX dashboard updates
+ * @note Called periodically by the dashboard JavaScript for live updates
+ */
 void WebController::handleStatus() {
     webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     String json = "{";
@@ -201,11 +258,15 @@ void WebController::handleStatus() {
     json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
     json += "\"state\":" + String((int)evse.getState()) + ",";
     json += "\"paused\":" + String(evse.isPaused() ? "true" : "false") + ",";
-    json += "\"conn\":" + String(evse.isVehicleConnected() ? "true" : "false");
+    json += "\"conn\":" + String(evse.isVehicleConnected() ? "true" : "false") + ",";
+    json += "\"lock\":" + String(evse.isSafetyLockoutActive() ? "true" : "false");
     json += "}";
     webServer.send(200, "application/json", json);
 }
 
+/**
+ * @brief Serves the main dashboard page (AP mode: setup wizard, STA mode: control panel)
+ */
 void WebController::handleRoot() {
     if (apMode) {
         String host = webServer.hostHeader();
@@ -240,9 +301,9 @@ void WebController::handleRoot() {
     h.reserve(1500);
     h += "<h1>" + deviceId + "</h1><span class='version-tag'>CONTROLLER ONLINE</span>";
     
+    // Display critical RCM fault warning if residual current detected
     if (evse.isRcmEnabled() && evse.isRcmTripped()) {
         h += "<div style='background:#d32f2f; color:#fff; padding:15px; border-radius:6px; margin-bottom:15px; font-weight:bold; border:2px solid #ff5252; animation: blink 1s infinite;'>⚠️ CRITICAL: RCM FAULT DETECTED ⚠️<br><small>Residual Current Monitor Tripped. Disconnect Vehicle to Reset.</small></div><style>@keyframes blink{50%{opacity:0.8}}</style>";
-        h += "<div style='background:#d32f2f; color:#fff; padding:15px; border-radius:6px; margin-bottom:15px; font-weight:bold; border:2px solid #ff5252; animation: blink 1s infinite;'>CRITICAL: RCM FAULT DETECTED<br><small>Residual Current Monitor Tripped. Disconnect Vehicle to Reset.</small></div><style>@keyframes blink{50%{opacity:0.8}}</style>";
     }
 
     float amps = evse.getCurrentLimit();
@@ -281,6 +342,7 @@ void WebController::handleRoot() {
 
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag'>";
+    h += "<b>SAFETY LOCK:</b> <span id='lock' style='color:" + String(evse.isSafetyLockoutActive() ? "#ff5252" : "#00ffcc") + "'>" + (evse.isSafetyLockoutActive() ? "YES" : "NO") + "</span><br>";
     h += "<b>UPTIME:</b> <span id='upt'>" + getUptime() + "</span><br>";
     h += "<b>RESET REASON:</b> " + getRebootReason() + "<br>";
     h += "<b>WIFI SIGNAL:</b> <span id='rssi'>" + String(WiFi.RSSI()) + "</span> dBm<br>";
@@ -292,6 +354,9 @@ void WebController::handleRoot() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Renders the settings menu with links to all configuration pages
+ */
 void WebController::handleSettingsMenu() {
     if (!checkAuth()) return;
     String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>EVSE Settings</title>" + String(dashStyle) + "</head><body><div class='container'><h1>EVSE SETTINGS</h1>";
@@ -318,6 +383,9 @@ void WebController::handleSettingsMenu() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Configuration page for EVSE charging parameters (max current, soft start, etc.)
+ */
 void WebController::handleConfigEvse() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>EVSE Config</title>") + dashStyle + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
@@ -332,6 +400,10 @@ void WebController::handleConfigEvse() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Configuration page for Residual Current Monitor (RCM/RCD) safety settings
+ * @warning Disabling RCM is a safety risk - page includes warnings
+ */
 void WebController::handleConfigRcm() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>RCD Config</title>") + dashStyle + "</head><body><div class='container'><h1>RCD Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
@@ -342,6 +414,9 @@ void WebController::handleConfigRcm() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Configuration page for MQTT broker connection and failsafe settings
+ */
 void WebController::handleConfigMqtt() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>MQTT Config</title>") + dashStyle + "</head><body><div class='container'><h1>MQTT Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
@@ -358,6 +433,9 @@ void WebController::handleConfigMqtt() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Configuration page for OCPP 1.6 backend connection settings
+ */
 void WebController::handleConfigOcpp() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>OCPP Config</title>") + dashStyle + "</head><body><div class='container'><h1>OCPP Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
@@ -378,6 +456,9 @@ void WebController::handleConfigOcpp() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Configuration page for Telnet remote logging console
+ */
 void WebController::handleConfigTelnet() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>Telnet Config</title>") + dashStyle + "</head><body><div class='container'><h1>Telnet Console</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
@@ -391,6 +472,9 @@ void WebController::handleConfigTelnet() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Configuration page for WS2812 LED strip colors and effects per state
+ */
 void WebController::handleConfigLed() {
     if (!checkAuth()) return;
     LedSettings ls = led.getConfig();
@@ -404,15 +488,17 @@ void WebController::handleConfigLed() {
     auto addStateRow = [&](String label, String pfx, LedStateSetting s) {
         h += "<div style='background:#222; padding:10px; margin-top:10px; border-radius:4px;'><b>"+label+"</b><br>";
         h += "<div style='display:flex; gap:10px;'><select name='"+pfx+"_c'>";
-        const char* cols[] = {"OFF","RED","GREEN","BLUE","YELLOW","CYAN","MAGENTA","WHITE"};
-        for(int i=0;i<8;i++) h += "<option value='"+String(i)+"' "+String(s.color==i?"selected":"")+">"+cols[i]+"</option>";
+        
+        // LED color options (using centralized names from RGBWL2812.h)
+        for (int i = 0; i < getLedColorCount(); i++) {
+            h += "<option value='" + String(i) + "' " + String(s.color == i ? "selected" : "") + ">" + getLedColorName((LedColor)i) + "</option>";
+        }
         h += "</select><select name='"+pfx+"_e'>";
-        const char* effs[] = {
-            "OFF", "SOLID", "BLINK SLOW", "BLINK FAST", "BREATH", "RAINBOW", 
-            "KNIGHT RIDER", "CHASE", "SPARKLE", "THEATER CHASE", "FIRE", "WAVE", 
-            "TWINKLE", "COLOR WIPE", "RAINBOW CHASE", "COMET", "PULSE", "STROBE"
-        };
-        for(int i=0;i<18;i++) h += "<option value='"+String(i)+"' "+String(s.effect==i?"selected":"")+">"+effs[i]+"</option>";
+        
+        // LED effect options (using centralized names from RGBWL2812.h)
+        for (int i = 0; i < getLedEffectCount(); i++) {
+            h += "<option value='" + String(i) + "' " + String(s.effect == i ? "selected" : "") + ">" + getLedEffectName((LedEffect)i) + "</option>";
+        }
         h += "</select></div></div>";
     };
 
@@ -423,6 +509,7 @@ void WebController::handleConfigLed() {
     addStateRow("WiFi Config / AP", "wifi", ls.stateWifi);
     addStateRow("Boot / Startup", "boot", ls.stateBoot);
     addStateRow("Solar Idle (<6A)", "solidle", ls.stateSolarIdle);
+    addStateRow("Safety Lockout (Boot Loop)", "lockout", ls.stateSafetyLockout);
     addStateRow("RFID Accepted", "rfidok", ls.stateRfidOk);
     addStateRow("RFID Rejected", "rfidnok", ls.stateRfidReject);
 
@@ -437,8 +524,12 @@ void WebController::handleConfigLed() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Configuration page for WiFi SSID/password and static IP settings
+ */
 void WebController::handleConfigWifi() {
     if (!checkAuth()) return;
+    // Use current network values as defaults if not configured
     String dispIp = config.staticIp; String dispGw = config.staticGw; String dispSn = config.staticSn;
     if (WiFi.status() == WL_CONNECTED) {
         if (dispIp == "192.168.1.100" || dispIp == "") dispIp = WiFi.localIP().toString();
@@ -463,6 +554,9 @@ void WebController::handleConfigWifi() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Security configuration page with admin credentials and danger zone (reset options)
+ */
 void WebController::handleConfigAuth() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>Security Config</title>") + dashStyle + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
@@ -481,6 +575,10 @@ void WebController::handleConfigAuth() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Unified POST handler for saving configuration from all config pages
+ * @note Determines which settings to save based on presence of form arguments
+ */
 void WebController::handleSaveConfig() {
     if (!checkAuth() && !apMode) return;
     bool rebootRequired = false;
@@ -530,6 +628,7 @@ void WebController::handleSaveConfig() {
         ls.stateWifi = getSt("wifi");
         ls.stateBoot = getSt("boot");
         ls.stateSolarIdle = getSt("solidle");
+        ls.stateSafetyLockout = getSt("lockout");
         ls.stateRfidOk = getSt("rfidok");
         ls.stateRfidReject = getSt("rfidnok");
         
@@ -569,18 +668,29 @@ void WebController::handleSaveConfig() {
     }
 }
 
+/**
+ * @brief Handles control commands (start/pause/stop charging, LED test)
+ * @param do Query parameter: "start", "pause", "stop", or "ledtest"
+ * @param ajax If present, returns plain text "OK" instead of redirect
+ */
 void WebController::handleCmd() {
     if (!checkAuth()) return;
     String op = webServer.arg("do");
     logger.infof("[WEB] Command received: %s", op.c_str());
-    if (op == "start") evse.startCharging();
-    else if (op == "pause") evse.pauseCharging();
-    else if (op == "stop") { evse.stopCharging(); pilot.disable(); }
+    
+    // Execute the requested command
+    if (op == "start")        evse.startCharging();
+    else if (op == "pause")   evse.pauseCharging();
+    else if (op == "stop")    { evse.stopCharging(); pilot.disable(); }
     else if (op == "ledtest") { led.startTestSequence(); }
     if (webServer.hasArg("ajax")) webServer.send(200, "text/plain", "OK");
     else { webServer.sendHeader("Location", "/", true); webServer.send(302, "text/plain", ""); }
 }
 
+/**
+ * @brief PWM Test Lab page - allows manual PWM duty cycle control for debugging
+ * @warning Bypasses normal safety interlocks - for development/testing only
+ */
 void WebController::handleTestMode() {
     if (!checkAuth()) return;
     int maxDuty = (int)pilot.ampsToDuty(MAX_CURRENT);
@@ -598,6 +708,9 @@ void WebController::handleTestMode() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief Handles PWM test lab commands (enable/disable test mode, set duty cycle)
+ */
 void WebController::handleTestCmd() {
     if (!checkAuth()) return;
     String act = webServer.arg("act");
@@ -610,8 +723,10 @@ void WebController::handleTestCmd() {
         webServer.send(200, "text/plain", String(amps));
     } else webServer.send(400, "text/plain", "Bad Request");
 }
-
-void WebController::handleWifiScan() {
+/**
+ * @brief Scans for available WiFi networks and returns JSON array
+ * @return JSON array: [{"ssid":"NetworkName","rssi":-65}, ...]
+ */void WebController::handleWifiScan() {
     if (!apMode && !checkAuth()) return;
     int n = WiFi.scanNetworks();
     String json = "[";
@@ -623,6 +738,10 @@ void WebController::handleWifiScan() {
     webServer.send(200, "application/json", json);
 }
 
+/**
+ * @brief Factory reset - erases all configuration and reboots into AP mode
+ * @warning Destructive operation - all settings including WiFi credentials are lost
+ */
 void WebController::handleFactoryReset() {
     if (!checkAuth()) return;
     evse.stopCharging(); pilot.disable();
@@ -635,6 +754,9 @@ void WebController::handleFactoryReset() {
     requestReboot();
 }
 
+/**
+ * @brief Resets only WiFi credentials - device reboots into AP setup mode
+ */
 void WebController::handleWifiReset() {
     if (!checkAuth()) return;
     config.wifiSsid = ""; config.wifiPass = ""; config.useStatic = false;
@@ -646,6 +768,9 @@ void WebController::handleWifiReset() {
     requestReboot();
 }
 
+/**
+ * @brief Resets EVSE parameters to safe defaults (32A, RCM enabled, no soft start)
+ */
 void WebController::handleEvseReset() {
     if (!checkAuth()) return;
     config.maxCurrent = 32.0f; config.rcmEnabled = true; config.allowBelow6AmpCharging = false; config.softStart = false; config.lowLimitResumeDelayMs = 300000UL;
@@ -655,6 +780,9 @@ void WebController::handleEvseReset() {
     webServer.sendHeader("Location", "/settings", true); webServer.send(302, "text/plain", "");
 }
 
+/**
+ * @brief OTA firmware update page - displays file upload form
+ */
 void WebController::handleUpdate() {
     if(!checkAuth()) return;
     String h = "<html><head>"+String(dashStyle)+"</head><body><div class='container'><h1>OTA UPDATE</h1><form method='POST' action='/doUpdate' enctype='multipart/form-data' onsubmit=\"var b=document.getElementById('btn');b.disabled=true;b.value='FLASHING';var d=0;setInterval(function(){d=(d+1)%4;var t='FLASHING';for(var i=0;i<d;i++)t+='.';b.value=t;},500);\">";
@@ -663,6 +791,9 @@ void WebController::handleUpdate() {
     webServer.send(200, "text/html", h);
 }
 
+/**
+ * @brief OTA update completion handler - shows success/failure message
+ */
 void WebController::handleDoUpdate() {
     logger.info("[OTA] Upload complete, sending response");
     String h = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='15;url=/'><meta name='viewport' content='width=device-width'><style>body{background:#121212;color:#ffcc00;font-family:sans-serif;text-align:center;padding:50px;} .btn{background:#ffcc00;color:#121212;padding:10px 20px;text-decoration:none;border-radius:5px;font-weight:bold;display:inline-block;margin-top:20px;}</style></head><body>";
@@ -673,6 +804,10 @@ void WebController::handleDoUpdate() {
     if (!Update.hasError()) { requestReboot(); }
 }
 
+/**
+ * @brief OTA upload stream handler - processes firmware binary chunks
+ * @note Stops EVSE task and disables pilot during update for safety
+ */
 void WebController::handleUpdateUpload() {
     esp_task_wdt_reset(); // Keep watchdog happy during long uploads
     HTTPUpload& u = webServer.upload();

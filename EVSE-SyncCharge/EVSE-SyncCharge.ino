@@ -17,13 +17,15 @@
  *   - Diagnostics: "Cyan-Diag" console showing real-time Pilot Voltage, Heap, and Uptime.
  *
  * SAFETY ARCHITECTURE:
- *   - Hardware Watchdog (WDT): 8-second hardware supervisor to reset MCU on deadlocks.
+ *   - Hardware Watchdog (WDT): second hardware supervisor to reset MCU on deadlocks.
  *   - Synchronized PWM-Abort: Instantly switches Pilot to +12V (100% duty) on stop/fault
  *     to electronically cease power draw before opening the relay.
  *   - Mechanical Protection: Anti-chatter hysteresis (3000ms) and Pre-Init Pin Lockout
  *     to prevent contactor wear and startup glitches.
  *   - Residual Current Monitor (RCM): Integrated support for RCM fault detection and
  *     periodic self-testing (IEC 62955 / IEC 61851 compliance).
+ *   - Boot Loop Protection: RTC-backed crash tracking prevents relay chattering during
+ *     instability while allowing auto-recovery after power outages.
  *
  * HARDWARE CONFIGURATION:
  *   - MCU: ESP32 (Dual Core)
@@ -61,6 +63,7 @@
 #include "RGBWL2812.h"
 #include "EvseRfid.h"
 #include "EvseTelnet.h"
+#include "BootCount.h"
 
 #define BAUD_RATE 115200
 #define WDT_TIMEOUT 8 
@@ -98,6 +101,11 @@ void updateLedState() {
     // Priority 1: Error States
     if (evse.getVehicleState() == VEHICLE_ERROR || evse.getVehicleState() == VEHICLE_NO_POWER) {
         led.setState(LED_ERROR);
+        return;
+    }
+    // Priority 1.5: Safety Lockout (Boot Loop)
+    if (bootCount.IsBootCountHigh()) {
+        led.setState(LED_SAFETY_LOCKOUT);
         return;
     }
     // Priority 2: WiFi Setup
@@ -152,10 +160,12 @@ void evseLoopTask(void* parameter) {
 }
 
 void setup() {
-    // Power stabilization delay to prevent brownouts at boot
-    delay(1000);
 
     evse.preinit_hard(); 
+    
+    Serial.begin(BAUD_RATE);
+    bootCount.begin();
+    
     led.begin();
     led.setState(LED_BOOT);
 
@@ -174,7 +184,6 @@ void setup() {
         pilot.stop(); 
     });
 
-    Serial.begin(BAUD_RATE);
     uint64_t chipid = ESP.getEfuseMac();   // 48-bit MAC
     char devName[32];
 
@@ -280,13 +289,26 @@ void setup() {
     evse.setRcmEnabled(config.rcmEnabled);
 
     // RCM Initialization & Self-Test
+    bool rcmBootTestPassed = true;
     if (config.rcmEnabled) {
         rcm.begin();
         if (!rcm.selfTest()) {
             logger.error("[MAIN] Boot-up RCM Self-Test FAILED");
+            rcmBootTestPassed = false;
         } else {
             logger.info("[MAIN] Boot-up RCM Self-Test PASSED");
         }
+    }
+
+    if (!bootCount.IsBootCountHigh()) {
+        if (rcmBootTestPassed) {
+            evse.setSafetyLockout(false);
+            logger.info("[MAIN] Boot Count OK. Safety Lockout Cleared.");
+        } else {
+            logger.warn("[MAIN] Safety Lockout Active: RCM Self-Test Failed!");
+        }
+    } else {
+        logger.warn("[MAIN] Safety Lockout Active: Boot Loop Detected!");
     }
 
     // RFID Initialization
@@ -317,6 +339,7 @@ void setup() {
 void loop() {
     esp_task_wdt_reset(); 
 
+    bootCount.loop();
     // WiFi Recovery Logic (AP Fallback -> STA)
     if (isFallbackApMode) {
         static unsigned long lastWifiRetry = 0;

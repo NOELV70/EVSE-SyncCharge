@@ -19,9 +19,11 @@ Built on a "Safety" design philosophy, the system prioritizes physical protectio
 Integrated RCM Protection: Native support for Residual Current Monitors (RCM) with automated IEC-compliant self-testing intervals. 
 The system executes a pre-charge safety check before every session and instantly trips the contactor if a fault is detected.
 
-Dual-Layer Watchdog Supervision:
+Multi-Layer System Supervision:
 Hardware WDT: An 8-second hardware supervisor resets the MCU in the event of a network stack deadlock.
 ThrottleAlive™ Protocol: A centralized safety heartbeat that automatically throttles charging to a safe minimum, if external control signals (MQTT/OCPP) are lost, preventing grid overloads during network outages.
+Boot Loop Protection: A persistent "Strike System" using RTC memory tracks system stability across reboots. If the device enters a rapid crash loop (>5 crashes without stability), it engages a **Safety Lockout** to prevent dangerous relay chattering. The system intelligently distinguishes between a **Power Outage** (Safe Auto-Recovery) and a **System Crash** (Lockout).
+
 Synchronized Soft-Stop: Prevents contactor arcing by electronically terminating the charge via the Pilot signal, milliseconds before opening the mechanical relay.
 Anti-Chatter Hysteresis: Intelligent state-machine logic filters signal noise to prevent rapid relay cycling, extending hardware lifespan.
 
@@ -63,4 +65,3 @@ Why EVSE-SyncCharge?
 <img width="522" height="730" alt="image" src="https://github.com/user-attachments/assets/e8977c46-8974-4426-9abe-26caa5f04311" />
 <img width="432" height="895" alt="image" src="https://github.com/user-attachments/assets/2c37baa7-36bf-4647-b4c2-8c43871fd1a0" />
 <img width="462" height="717" alt="image" src="https://github.com/user-attachments/assets/9486444c-4c0a-4d8c-b392-407ee8619fe5" />
-

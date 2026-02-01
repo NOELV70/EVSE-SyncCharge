@@ -162,6 +162,8 @@ private:
     String topicRcmConfig;      // Command to enable/disable
     String topicRcmState;       // Status of config (1/0)
     String topicRcmFault;       // Fault status (1=Tripped, 0=OK)
+    String topicPhaseMode;      // "1-Phase", "3-Phase", "Auto"
+    String topicPower;          // Real-time Power (kW)
 
     // --- Last values for change detection ---
     STATE_T lastState = STATE_COUNT;
@@ -173,6 +175,8 @@ private:
     float lastPwmDuty = -1;
     bool lastRcmTripped = false;
     bool lastRcmEnabled = true;
+    int lastPhaseMode = -1;
+    float lastPower = -1.0f;
 };
 
 #endif

@@ -38,6 +38,8 @@ public:
     bool isVehicleConnected() const;
     bool isPaused() const;
     float getCurrentLimit() const;
+    float getMaxCurrent() const;
+    PhaseMode getPhaseMode() const;
     unsigned long getElapsedTime() const;
 
     void setCurrentLimit(float amps);
@@ -57,6 +59,7 @@ public:
     bool isRcmTripped() const;
     void setSafetyLockout(bool locked);
     bool isSafetyLockoutActive() const;
+    bool isThreePhase() const;
 
     float getPilotDuty() const;
 
@@ -100,6 +103,7 @@ private:
     bool errorLockout = true;
     bool rcmEnabled = true; // Default to enabled for safety
     bool rcmTripped = false; // Track specific RCM fault
+    bool _autoRestartPhaseSwitch = false;
 
     // ThrottleAlive State
     unsigned long throttleAliveTimeout = 0;

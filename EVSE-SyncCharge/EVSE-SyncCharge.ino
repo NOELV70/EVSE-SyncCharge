@@ -12,7 +12,7 @@
  *   - Smart Protocol Management: Full SAE J1772 implementation with 1kHz PWM generation
  *     and high-precision ADC feedback for vehicle state detection (States A-F).
  *   - IoT & Connectivity: Native MQTT stack with Home Assistant Auto-Discovery,
- *     Captive Portal for zero-preset configuration, and OTA firmware updates.
+ *     Captive Portal for zero-preset configuratioc:\Users\Noel\Downloads\Config_tasmota_99F9AC_6572_13.2.0 (3).dmp.crdownloadn, and OTA firmware updates.
  *   - Network Intelligence: One-Click transition from DHCP to Static IP with auto-detection.
  *   - Diagnostics: "Cyan-Diag" console showing real-time Pilot Voltage, Heap, and Uptime.
  *

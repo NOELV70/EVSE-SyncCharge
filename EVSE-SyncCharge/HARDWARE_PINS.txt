@@ -1,0 +1,64 @@
+================================================================================
+EVSE-SyncCharge Hardware Pinout Configuration
+Target: ESP32 (Standard)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. CORE EVSE CHARGING LOGIC
+--------------------------------------------------------------------------------
+Component       GPIO    Type    Defined In      Notes
+--------------  ----    ----    -----------     --------------------------------
+Relay L1 (Main) 14      OUT     Relay.cpp       AC Contactor (ADC2_CH6 - Safe for Digital Out)
+Relay L2+L3     13      OUT     Relay.cpp       Phase Expansion (ADC2_CH4 - Safe for Digital Out). *Requires 15s safety delay on switch*
+Pilot PWM       27      OUT     Pilot.h         1kHz Control Pilot Signal (+/- 12V)
+Pilot ADC       36      IN      Pilot.h         Sensor VP (Analog Feedback)
+
+--------------------------------------------------------------------------------
+2. SAFETY & PROTECTION (RCM)
+--------------------------------------------------------------------------------
+Component       GPIO    Type    Defined In      Notes
+--------------  ----    ----    -----------     --------------------------------
+RCM Fault       25      IN      rcm.cpp         Residual Current Monitor Input
+RCM Test        26      OUT     rcm.cpp         Triggers Self-Test Coil
+
+--------------------------------------------------------------------------------
+3. USER INTERFACE
+--------------------------------------------------------------------------------
+Component       GPIO    Type    Defined In      Notes
+--------------  ----    ----    -----------     --------------------------------
+RGB LED         22      OUT     RGBWL2812.cpp   WS2812/NeoPixel Data Pin
+Buzzer          4       OUT     Main Sketch*    Active Buzzer (Passed to EvseRfid::begin)
+
+--------------------------------------------------------------------------------
+4. RFID READER (MFRC522 - SPI BUS)
+--------------------------------------------------------------------------------
+Component       GPIO    Type    Defined In      Notes
+--------------  ----    ----    -----------     --------------------------------
+SDA (SS)        5       OUT     Main Sketch*    Chip Select
+SCK             18      OUT     Library (SPI)   Standard VSPI SCK
+MISO            19      IN      Library (SPI)   Standard VSPI MISO
+MOSI            23      OUT     Library (SPI)   Standard VSPI MOSI
+RST             17      OUT     Main Sketch*    Reset Pin
+
+* Note: Pins marked "Main Sketch" are configurable arguments passed to 
+  EvseRfid::begin(), but these are the standard defaults from documentation.
+
+--------------------------------------------------------------------------------
+5. HARDWARE CONSTRAINTS & WARNINGS
+--------------------------------------------------------------------------------
+* ADC2 Pins (GPIO 13, 14, 25, 26, 27):
+  - These pins are on ADC2. Since WiFi is used, they CANNOT be used for Analog Input.
+  - They ARE safe to use for Digital Output (Relays, PWM) or Digital Input.
+  - We use 13/14 for Relays to save ADC1 pins for sensors.
+
+* GPIO 16 & 17 (Not Used for Relays anymore):
+  - Avoid using these if possible; they conflict with PSRAM on WROVER modules.
+  - RFID RST is on 17 by default; move to another pin if using WROVER.
+
+* GPIO 5 (RFID SDA/SS):
+  - Strapping Pin (VSPICS0). Must not be held LOW during boot.
+  - RFID Module SDA pin is high-impedance input, so this is OK (Verified).
+
+================================================================================
+Generated from Source Code Analysis
+================================================================================

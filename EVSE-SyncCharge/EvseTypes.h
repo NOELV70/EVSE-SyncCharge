@@ -41,6 +41,13 @@ struct ActualCurrent {
     float l3 = 0.0f;
 };
 
+// Phase Mode for Charging
+enum PhaseMode {
+    PHASE_MODE_1P = 0,
+    PHASE_MODE_3P = 1,
+    PHASE_MODE_AUTO = 2
+};
+
 // Charging configuration
 struct ChargingSettings {
     float maxCurrent = 32.0f;
@@ -58,6 +65,7 @@ struct ChargingSettings {
     // automatically resuming PWM when the current limit is raised above
     // MIN_CURRENT. Default is 5 minutes (300000 ms) to avoid rapid toggling.
     unsigned long lowLimitResumeDelayMs = 300000UL;
+    PhaseMode phaseMode = PHASE_MODE_1P;
 };
 
 

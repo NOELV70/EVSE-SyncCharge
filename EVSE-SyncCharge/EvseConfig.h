@@ -13,6 +13,7 @@
 #define EVSE_CONFIG_H
 
 #include <Arduino.h>
+#include "EvseTypes.h"
 
 /* --- VERSIONING --- */
 #define KERNEL_VERSION       "9.0.0"
@@ -41,6 +42,7 @@ struct AppConfig {
     unsigned long mqttFailsafeTimeout = 600; // Seconds
     bool rcmEnabled = false;
     unsigned long solarStopTimeout = 0; // 0 = Disabled
+    PhaseMode phaseMode = PHASE_MODE_1P;
     //bool rfidEnabled = false;
     //bool rfidBuzzerEnabled = true;
     // OCPP Configuration

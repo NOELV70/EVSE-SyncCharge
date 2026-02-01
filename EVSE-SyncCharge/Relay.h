@@ -23,15 +23,24 @@ private:
     bool _currentState;
     bool _desiredState;
     unsigned long _lastSwitchTime;
+    
+    bool _isThreePhaseMode;
+    bool _safetyLockoutActive;
+    unsigned long _safetyLockoutStart;
 
 public:
     Relay();
 
-    void setup(bool initialState);
+    void setup();
     void loop();
 
     void open();
     void close();
+    
+    // Phase Switching Control
+    void setThreePhase(bool enable);
+    bool isThreePhase() const { return _isThreePhaseMode; }
+    bool isSafetyLockoutActive() const { return _safetyLockoutActive; }
     
     // Status getters for safety sequencing
     bool isClosed() const { return _currentState == HIGH; }

@@ -42,6 +42,11 @@ Universal Connectivity
 Intelligent Energy Management
 Turn your EV into a grid-stabilizing asset.
 
+**Dynamic 1-Phase / 3-Phase Switching:**
+The system supports runtime switching between single-phase and three-phase charging modes. This is particularly useful for Solar PV integration, allowing charging to start at 1.4kW (6A 1-phase) and scale up to 22kW (32A 3-phase) as solar production increases.
+*   **Auto-Switching Logic:** (When configured in Auto Mode) Automatically engages L2+L3 when requested current exceeds 23A, and drops back to 1-Phase if current falls below 7A.
+*   **Safety Interlock:** Enforces a mandatory **15-second safety delay** during phase transitions to allow the vehicle's onboard charger capacitors to discharge, preventing hardware damage.
+
 Solar Excess Charging: Supports dynamic amperage adjustment (6A–64A) in real-time. 
 The unique "Solar Throttle" mode allows the system to modulate charging power to match solar production curve perfectly.
 
@@ -54,6 +59,13 @@ Technical Specifications
   Security	WPA2/WPA3 WiFi, TLS/SSL for OCPP
   Updates	OTA (Over-The-Air) with Safety Interlock
   Diagnostics	Real-time "Cyan-Diag" Web Console
+
+Hardware Configuration
+  Component	Pin (GPIO)	Function
+  Relay L1	14	Controls Main Contactor (L1+N)
+  Relay L2+L3	13	Controls Phase Expansion Contactor
+  Pilot PWM	27	SAE J1772 Control Pilot (1kHz)
+  Pilot Feedback	36	ADC Input for Pilot State Detection
 
 Why EVSE-SyncCharge?
   Most DIY controllers are just "smart relays." EVSE-SyncCharge is a Charge Controller. 

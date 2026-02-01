@@ -40,6 +40,7 @@ void loadConfig(AppConfig &config) {
     config.mqttFailsafeTimeout = prefs.getULong("m_safe_t", 600);
     config.rcmEnabled = prefs.getBool("e_rcm_en", false);
     config.solarStopTimeout = prefs.getULong("e_sol_to", 0); // Default 0 (Disabled)
+    config.phaseMode = (PhaseMode)prefs.getInt("e_phase_mode", (int)PHASE_MODE_1P);
     //config.rfidEnabled = prefs.getBool("rfid_en", false);
     //config.rfidBuzzerEnabled = prefs.getBool("rfid_bz", false);
 
@@ -75,6 +76,7 @@ void saveConfig(const AppConfig &config) {
     prefs.putULong("m_safe_t", config.mqttFailsafeTimeout);
     prefs.putBool("e_rcm_en", config.rcmEnabled);
     prefs.putULong("e_sol_to", config.solarStopTimeout);
+    prefs.putInt("e_phase_mode", (int)config.phaseMode);
 //    prefs.putBool("rfid_en", config.rfidEnabled);
 //    prefs.putBool("rfid_bz", config.rfidBuzzerEnabled);
 

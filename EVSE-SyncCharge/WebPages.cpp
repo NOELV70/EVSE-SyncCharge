@@ -54,6 +54,7 @@ document.getElementById('clim').innerText=d.clim.toFixed(1);
 document.getElementById('pwm').innerText=d.pwm;
 document.getElementById('pvolt').innerText=d.pvolt.toFixed(2);
 document.getElementById('acrel').innerText=d.acrel;
+document.getElementById('phase').innerText=d.phase;
 document.getElementById('upt').innerText=d.upt;
 document.getElementById('rssi').innerText=d.rssi;
 var l=document.getElementById('lock');if(l){l.innerText=d.lock?'YES':'NO';l.style.color=d.lock?'#ff5252':'#00ffcc';}

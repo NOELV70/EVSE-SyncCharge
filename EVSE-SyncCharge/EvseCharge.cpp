@@ -20,15 +20,16 @@ extern Rcm rcm;
 EvseCharge::EvseCharge(Pilot &pilotRef) {
     pilot = &pilotRef;
     relay = new Relay();
+    _autoRestartPhaseSwitch = false;
 }
 
 void EvseCharge::preinit_hard() {
-    relay->setup(LOW);
+    relay->setup();
 }
 
 void EvseCharge::setup(ChargingSettings settings_) {
     logger.info("[EVSE] Setup begin");
-    relay->setup(LOW);
+    relay->setup();
     pilot->begin();
     pilot->standby();
 
@@ -38,6 +39,7 @@ void EvseCharge::setup(ChargingSettings settings_) {
     state = STATE_READY;
     _actualCurrentUpdated = 0;
     userPaused = false;
+    _autoRestartPhaseSwitch = false;
     
     // SAFETY: Initialize error lockout as FAIL-SAFE (true = locked)
     // Prevents restart immediately after watchdog reboot if vehicle was in error state
@@ -46,6 +48,12 @@ void EvseCharge::setup(ChargingSettings settings_) {
     logger.info("[EVSE] Error lockout initialized (fail-safe)");
     lastRcmTestTime = millis(); // Initialize timer (power-on test is handled in main setup)
 
+    // Apply initial phase configuration
+    // If Fixed 3P, enable immediately. For 1P or Auto, default to 1P (Auto promotes later).
+    if (settings.phaseMode == PHASE_MODE_3P) relay->setThreePhase(true);
+    else relay->setThreePhase(false);
+
+    logger.infof("[EVSE] Phase Mode initialized: %d (0=1P, 1=3P, 2=Auto)", (int)settings.phaseMode);
     logger.info("[EVSE] Setup done");
 }
 
@@ -75,6 +83,17 @@ void EvseCharge::loop() {
             errorLockout = true;
             relay->open();
         }
+    }
+
+    // Phase Switch Auto-Restart Logic
+    // Wait for the relay safety delay (15s) to finish before restarting the session
+    // This ensures the vehicle capacitors have time to discharge properly.
+    if (_autoRestartPhaseSwitch && !relay->isSafetyLockoutActive()) {
+        logger.info("[EVSE] Phase Switch Complete. Auto-restarting session.");
+        // Clear flag BEFORE start so Soft Start logic applies (if enabled) to prevent peaks.
+        // This resets current to 6A, allowing a safe ramp-up.
+        _autoRestartPhaseSwitch = false;
+        startCharging();
     }
 
     relay->loop();
@@ -123,6 +142,10 @@ bool EvseCharge::isSafetyLockoutActive() const {
     return errorLockout;
 }
 
+bool EvseCharge::isThreePhase() const {
+    return relay->isThreePhase();
+}
+
 void EvseCharge::updateVehicleState() {
     VEHICLE_STATE_T newState = pilot->read();
 
@@ -149,6 +172,11 @@ void EvseCharge::updateVehicleState() {
 void EvseCharge::startCharging() {
     logger.info("[EVSE] startCharging() called");
     
+    if (relay->isSafetyLockoutActive()) {
+        logger.warn("[EVSE] Start ignored: Phase Switch Safety Delay Active");
+        return;
+    }
+
     // SAFETY: Error lockout prevents restart after watchdog/crash recovery
     // Must be explicitly cleared when vehicle transitions to VEHICLE_NOT_CONNECTED
     if (errorLockout) {
@@ -276,6 +304,14 @@ float EvseCharge::getCurrentLimit() const {
     return currentLimit;
 }
 
+float EvseCharge::getMaxCurrent() const {
+    return settings.maxCurrent;
+}
+
+PhaseMode EvseCharge::getPhaseMode() const {
+    return settings.phaseMode;
+}
+
 unsigned long EvseCharge::getElapsedTime() const {
     unsigned long e = millis() - started;
 //    logger.debugf("[EVSE] getElapsedTime -> %lu ms", e);
@@ -286,7 +322,48 @@ void EvseCharge::setCurrentLimit(float amps) {
     if (amps < 0) amps = 0;
     if (amps > settings.maxCurrent) amps = settings.maxCurrent;
 
+    // BLOCK UPDATES during Phase Switch transition
+    // The system is waiting for the relay capacitor discharge (15s).
+    // Changing current now would confuse the logic or be lost when startCharging() resets to SoftStart.
+    if (_autoRestartPhaseSwitch) {
+        return;
+    }
+
     if (amps != currentLimit) {
+        // --- AUTO PHASE SWITCHING LOGIC ---
+        // We check for phase switching BEFORE applying the new limit.
+        // This prevents a momentary PWM spike to the requested high current 
+        // before the system decides to stop and switch phases.
+        if (settings.phaseMode == PHASE_MODE_AUTO) {
+            bool is3p = relay->isThreePhase();
+            
+            // Rule: Switch to 3-Phase if requested amps > 23A (User Threshold)
+            if (!is3p && amps > 23.0f) {
+                float rescaled = amps / 3.0f;
+                if (rescaled >= MIN_CURRENT) {
+                    logger.infof("[EVSE] Auto-Switching to 3-Phase (Req %.2fA > 23A). Rescaling to %.2fA", amps, rescaled);
+                    stopCharging();
+                    relay->setThreePhase(true);
+                    currentLimit = rescaled;
+                    _autoRestartPhaseSwitch = true;
+                    return; // Stop here, do not apply original amps
+                }
+            }
+            // Rule: Switch to 1-Phase if requested amps < 7A
+            else if (is3p && amps < 7.0f) {
+                float rescaled = amps * 3.0f;
+                if (rescaled > settings.maxCurrent) rescaled = settings.maxCurrent;
+
+                logger.infof("[EVSE] Auto-Switching to 1-Phase (Req %.2fA < 7A). Rescaling to %.2fA", amps, rescaled);
+                stopCharging();
+                relay->setThreePhase(false);
+                currentLimit = rescaled;
+                _autoRestartPhaseSwitch = true;
+                return; // Stop here
+            }
+        }
+        
+        // Normal update if no switch occurred
         currentLimit = amps;
         logger.infof("[EVSE] Setting current limit to %.2f A", amps);
         applyCurrentLimit();

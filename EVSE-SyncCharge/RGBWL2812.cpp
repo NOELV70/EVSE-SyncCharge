@@ -542,6 +542,6 @@ uint32_t RGBWL2812::Wheel(byte WheelPos) {
 }
 
 // LED 
-constexpr int PIN_GRB_LED_OUT = 22;
+constexpr int PIN_RGB_LED_OUT = 22;
 
-RGBWL2812 led(PIN_GRB_LED_OUT);
+RGBWL2812 led(PIN_RGB_LED_OUT);

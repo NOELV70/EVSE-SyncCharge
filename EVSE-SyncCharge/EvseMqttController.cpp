@@ -51,11 +51,16 @@ void EvseMqttController::begin(const char* mqttServer, int mqttPort,
     topicRcmConfig              = "evse/" + deviceId + "/config/rcm";
     topicRcmState               = "evse/" + deviceId + "/rcm/enabled";
     topicRcmFault               = "evse/" + deviceId + "/rcm/fault";
+    topicPhaseMode              = "evse/" + deviceId + "/phaseMode";
+    topicPower                  = "evse/" + deviceId + "/power";
 
     mqttClient.setServer(mqttServer, mqttPort);
     mqttClient.setCallback([this](char* topic, byte* payload, unsigned int length) {
         mqttCallback(topic, payload, length);
     });
+
+    // Increase buffer size to handle long Home Assistant Discovery payloads
+    mqttClient.setBufferSize(1024);
 
     logger.infof("[MQTT] Configured for server: %s:%d", mqttServer, mqttPort);
 }
@@ -113,6 +118,10 @@ void EvseMqttController::loop()
             mqttClient.publish(topicRcmState.c_str(), evse->isRcmEnabled() ? "1" : "0", true);
             mqttClient.publish(topicRcmFault.c_str(), evse->isRcmTripped() ? "1" : "0", true);
 
+            // Sync Phase Mode
+            // Force update in loop by resetting lastPhaseMode
+            lastPhaseMode = -1; 
+
             publishHADiscovery();
         }
         else
@@ -135,7 +144,8 @@ void EvseMqttController::loop()
 
     VEHICLE_STATE_T v = evse->getVehicleState();
     if (v != lastVehicleState) {
-        char buf[8]; itoa((int)v, buf, 10);
+        char buf[64];
+        vehicleStateToText(v, buf);
         mqttClient.publish(topicVehicle.c_str(), buf, true);
         lastVehicleState = v;
     }
@@ -175,6 +185,36 @@ void EvseMqttController::loop()
         // This handles updates from Web UI reflecting in MQTT
         mqttClient.publish(topicRcmState.c_str(), rcmEn ? "1" : "0", true);
         lastRcmEnabled = rcmEn;
+    }
+
+    int pm = (int)evse->getPhaseMode();
+    if (pm != lastPhaseMode) {
+        String s;
+        if (pm == 0) s = "1-Phase";
+        else if (pm == 1) s = "3-Phase";
+        else s = "Auto";
+        
+        mqttClient.publish(topicPhaseMode.c_str(), s.c_str(), true);
+        lastPhaseMode = pm;
+    }
+
+    // --- Power Calculation (kW) ---
+    // ESTIMATION ONLY (No Sensors): P = Limit * 230V * Phases
+    float powerKw = 0.0f;
+    if (evse->getState() == STATE_CHARGING) {
+        float amps = evse->getCurrentLimit();
+        if (evse->isThreePhase()) {
+            powerKw = (amps * 3.0f * 230.0f) / 1000.0f;
+        } else {
+            powerKw = (amps * 230.0f) / 1000.0f;
+        }
+    }
+
+    if (abs(powerKw - lastPower) > 0.02f) { // Only publish if changed by > 20W
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.2f", powerKw);
+        mqttClient.publish(topicPower.c_str(), buf, true);
+        lastPower = powerKw;
     }
 }
 
@@ -321,70 +361,82 @@ void EvseMqttController::publishHADiscovery()
 
     // --- Switch: Start/Stop charging ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_charging/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Charging\",\"state_topic\":\"%s\",\"command_topic\":\"%s\",\"unique_id\":\"%s_charging\",\"device\":{\"identifiers\":[\"%s\"],\"manufacturer\":\"NVL\",\"model\":\"EVSE v1\",\"name\":\"EVSE Charger\"}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Charging\",\"state_topic\":\"%s\",\"command_topic\":\"%s\",\"unique_id\":\"%s_charging\",\"device\":{\"identifiers\":[\"%s\"],\"manufacturer\":\"NVL\",\"model\":\"EVSE v1\",\"name\":\"EVSE Charger\"}}",
              topicState.c_str(), topicCommand.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: Current Limit ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_current_limit/config", base, deviceId.c_str());
-    // Note: Max is set to 32.0 as a sensible default. The EVSE firmware itself will clamp to its configured maximum.
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Current Limit\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"min\":6.0,\"max\":32.0,\"step\":1.0,\"unique_id\":\"%s_current_limit\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicSetCurrent.c_str(), topicCurrentLimitState.c_str(), deviceId.c_str(), deviceId.c_str());
+    // Max is set to the configured maximum current of the device
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Total Current\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"min\":6.0,\"max\":%.1f,\"step\":1.0,\"unique_id\":\"%s_current_limit\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicSetCurrent.c_str(), topicCurrentLimitState.c_str(), evse->getMaxCurrent(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: Current ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_current/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Current\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"unique_id\":\"%s_current\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Current\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"unique_id\":\"%s_current\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicCurrent.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: PWM Duty ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_pwm/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Duty\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"unique_id\":\"%s_pwm\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"PWM Duty\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"unique_id\":\"%s_pwm\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: Vehicle State ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_vehicle/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Vehicle\",\"state_topic\":\"%s\",\"unique_id\":\"%s_vehicle\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Vehicle\",\"state_topic\":\"%s\",\"unique_id\":\"%s_vehicle\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicVehicle.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: PWM Test for HA slider ---
     // --- Switch: PWM Test enable/disable ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_pwm_test_switch/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Test Switch\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"enable\",\"payload_off\":\"disable\",\"unique_id\":\"%s_pwm_test_switch\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"PWM Test Switch\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"enable\",\"payload_off\":\"disable\",\"unique_id\":\"%s_pwm_test_switch\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: PWM Test for HA slider (sends percent to test topic) ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_pwm_test/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE PWM Test\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"min\":0,\"max\":100,\"step\":1,\"unique_id\":\"%s_pwm_test\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"PWM Test\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"min\":0,\"max\":100,\"step\":1,\"unique_id\":\"%s_pwm_test\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Switch: Failsafe Enable ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_failsafe/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE MQTT Failsafe\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_failsafe\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"MQTT Failsafe\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_failsafe\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicSetFailsafe.c_str(), topicFailsafeState.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: Failsafe Timeout ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_failsafe_t/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE Failsafe Timeout\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"s\",\"min\":10,\"max\":3600,\"unique_id\":\"%s_failsafe_t\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Failsafe Timeout\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"s\",\"min\":10,\"max\":3600,\"unique_id\":\"%s_failsafe_t\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicSetFailsafeTimeout.c_str(), topicFailsafeTimeoutState.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Binary Sensor: RCM Fault ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/binary_sensor/%s_rcm_fault/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE RCM Fault\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"device_class\":\"safety\",\"unique_id\":\"%s_rcm_fault\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"RCM Fault\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"device_class\":\"safety\",\"unique_id\":\"%s_rcm_fault\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicRcmFault.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Switch: RCM Enable ---
     snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_rcm_enable/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"EVSE RCM Protection\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_rcm_enable\",\"device\":{\"identifiers\":[\"%s\"]}}",
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"RCM Protection\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_rcm_enable\",\"device\":{\"identifiers\":[\"%s\"]}}",
              topicRcmConfig.c_str(), topicRcmState.c_str(), deviceId.c_str(), deviceId.c_str());
+    mqttClient.publish(topicBuf, payloadBuf, true);
+
+    // --- Sensor: Phase Mode ---
+    snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_phase_mode/config", base, deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Phase Mode\",\"state_topic\":\"%s\",\"icon\":\"mdi:sine-wave\",\"unique_id\":\"%s_phase_mode\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicPhaseMode.c_str(), deviceId.c_str(), deviceId.c_str());
+    mqttClient.publish(topicBuf, payloadBuf, true);
+
+    // --- Sensor: Real-Time Power ---
+    snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_power/config", base, deviceId.c_str());
+    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Estimated Power\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"kW\",\"device_class\":\"power\",\"state_class\":\"measurement\",\"unique_id\":\"%s_power\",\"device\":{\"identifiers\":[\"%s\"]}}",
+             topicPower.c_str(), deviceId.c_str(), deviceId.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     logger.info("[MQTT] HA discovery published");

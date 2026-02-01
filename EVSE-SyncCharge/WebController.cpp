@@ -261,6 +261,7 @@ void WebController::handleStatus() {
                        (evse.getVehicleState() == VEHICLE_READY || evse.getVehicleState() == VEHICLE_READY_VENTILATION_REQUIRED);
 
     json += "\"acrel\":\"" + String(relayClosed ? "CLOSED" : "OPEN") + "\",";
+    json += "\"phase\":\"" + String(evse.isThreePhase() ? "3-PHASE" : "1-PHASE") + "\",";
     json += "\"upt\":\"" + getUptime() + "\",";
     json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
     json += "\"state\":" + String((int)evse.getState()) + ",";
@@ -323,6 +324,7 @@ void WebController::handleRoot() {
                        (evse.getVehicleState() == VEHICLE_READY || evse.getVehicleState() == VEHICLE_READY_VENTILATION_REQUIRED);
 
     h += "<div class='stat'><b>AC RELAY:</b> <span id='acrel'>" + String(relayClosed ? "CLOSED" : "OPEN") + "</span></div>";
+    h += "<div class='stat'><b>PHASE MODE:</b> <span id='phase'>" + String(evse.isThreePhase() ? "3-PHASE" : "1-PHASE") + "</span></div>";
     
     bool connected = evse.isVehicleConnected();
     
@@ -400,7 +402,15 @@ void WebController::handleSettingsMenu() {
 void WebController::handleConfigEvse() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>EVSE Config</title>") + dashStyle + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Note: Changing Phase Mode will trigger a reboot.</div>";
     h += "<label>Max Current (A)<input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
+    
+    h += "<label>Phase Mode<select name='phasemode'>";
+    h += "<option value='" + String((int)PHASE_MODE_1P) + "' " + String(config.phaseMode == PHASE_MODE_1P ? "selected" : "") + ">Single Phase (Fixed)</option>";
+    h += "<option value='" + String((int)PHASE_MODE_3P) + "' " + String(config.phaseMode == PHASE_MODE_3P ? "selected" : "") + ">Three Phase (Fixed)</option>";
+    h += "<option value='" + String((int)PHASE_MODE_AUTO) + "' " + String(config.phaseMode == PHASE_MODE_AUTO ? "selected" : "") + ">Auto (1p <-> 3p)</option>";
+    h += "</select></label>";
+
     h += "<label>Allow Charging < 6A?<select name='allowlow'><option value='0' "+String(!config.allowBelow6AmpCharging?"selected":"")+">No (Strict J1772)</option><option value='1' "+String(config.allowBelow6AmpCharging?"selected":"")+">Yes (Solar/Throttle)</option></select></label>";
     h += "<label>Soft Start (Start at 6A)<select name='softstart'><option value='0' "+String(!config.softStart?"selected":"")+">No (Use Max Current)</option><option value='1' "+String(config.softStart?"selected":"")+">Yes</option></select></label>";
     h += "<label>Resume delay (ms)<input name='lldelay' type='number' value='"+String(config.lowLimitResumeDelayMs)+"'></label>";
@@ -601,6 +611,14 @@ void WebController::handleSaveConfig() {
         config.softStart = (webServer.arg("softstart") == "1");
         config.lowLimitResumeDelayMs = webServer.arg("lldelay").toInt();
         config.solarStopTimeout = webServer.arg("solto").toInt();
+        
+        if (webServer.hasArg("phasemode")) {
+            PhaseMode pm = (PhaseMode)webServer.arg("phasemode").toInt();
+            if (config.phaseMode != pm) {
+                config.phaseMode = pm;
+                rebootRequired = true; // Force reboot to re-init relays safely
+            }
+        }
     }
     if (webServer.hasArg("mqhost")) {
         rebootRequired = true;
@@ -786,7 +804,7 @@ void WebController::handleEvseReset() {
     if (!checkAuth()) return;
     config.maxCurrent = 32.0f; config.rcmEnabled = true; config.allowBelow6AmpCharging = false; config.softStart = false; config.lowLimitResumeDelayMs = 300000UL;
     saveConfig(config);
-    ChargingSettings cs; cs.maxCurrent = config.maxCurrent; cs.disableAtLowLimit = !config.allowBelow6AmpCharging; cs.softStart = config.softStart; cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
+    ChargingSettings cs; cs.maxCurrent = config.maxCurrent; cs.disableAtLowLimit = !config.allowBelow6AmpCharging; cs.softStart = config.softStart; cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs; cs.phaseMode = config.phaseMode;
     evse.setup(cs); evse.setRcmEnabled(config.rcmEnabled);
     webServer.sendHeader("Location", "/settings", true); webServer.send(302, "text/plain", "");
 }

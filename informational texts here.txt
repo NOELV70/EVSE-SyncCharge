@@ -109,6 +109,13 @@ OTA Refinement: Enhancing the Over-The-Air update stability for remote maintenan
 
 Enclosure Design: Moving the prototype from the bench into a weather-rated housing.
 
+6. UI & Theming Overhaul (v5.7)
+We have completely revamped the Web Interface to support dynamic theming without bloating the firmware size.
+*   **5 Professional Themes:** Users can now select between Yellow (Industrial), Blue (Light/Fresh), Dark Blue (Cyber), Green (Eco), and Dark Green (Matrix) styles.
+*   **CSS Variable Architecture:** The UI now uses a modern CSS variable stack, allowing for instant theme switching and consistent styling across all configuration pages (WiFi, RFID, MQTT).
+*   **Responsive Layout:** The dashboard header has been optimized to display the Logo and Device Name side-by-side, saving vertical screen space on mobile devices.
+*   **Dark/Light Mode Support:** The new architecture supports both high-contrast light themes and eye-friendly dark themes, configurable directly from the Security/Admin menu.
+
 
 
 

@@ -38,6 +38,7 @@ Universal Connectivity
   Instantly exposes sensors for Current, Voltage, Pilot Duty, and Vehicle State without writing a single line of YAML.
 
 * Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
+*   **Customizable Web Interface:** Features a responsive dashboard with **5 selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green) and a "Dark Mode" architecture, allowing users to personalize the charger's appearance via the Admin panel.
 
 Intelligent Energy Management
 Turn your EV into a grid-stabilizing asset.

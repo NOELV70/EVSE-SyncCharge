@@ -19,13 +19,20 @@
 #include <esp_task_wdt.h>
 #include "RGBWL2812.h"
 #include "EvseTelnet.h"
+#include <Preferences.h>
 
 extern EvseTelnet telnetServer;
 
 WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config, EvseRfid& rfid)
-    : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), rfid(rfid), apMode(false), _rebootPending(false), _rebootTimestamp(0) {}
+    : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), rfid(rfid), apMode(false), _rebootPending(false), _rebootTimestamp(0), _theme(0) {}
 
 extern volatile bool g_otaUpdating;
+
+String WebController::getDashStyle() { 
+    const char* t = (_theme == 1) ? themeBlue : ((_theme == 2) ? themeDarkBlue : ((_theme == 3) ? themeGreen : ((_theme == 4) ? themeDarkGreen : themeYellow)));
+    return String(t) + String(dashStyle); 
+}
+String WebController::getLogoSvg() { return String(logoSvg); }
 
 void WebController::begin(const String& deviceId, bool apMode) {
     this->deviceId = deviceId;
@@ -39,6 +46,11 @@ void WebController::begin(const String& deviceId, bool apMode) {
         logger.infof("[NET] AP SSID: %s-SETUP", deviceId.c_str());
         logger.infof("[NET] AP IP  : %s", WiFi.softAPIP().toString().c_str());
     }
+
+    // Load Theme Preference
+    Preferences p; p.begin("web_cfg", true);
+    _theme = p.getInt("theme", 0);
+    p.end();
 
     // Register Routes
     webServer.on("/", HTTP_GET, [this](){ handleRoot(); });
@@ -77,10 +89,10 @@ void WebController::begin(const String& deviceId, bool apMode) {
     // =========================================================================
     webServer.on("/config/rfid", HTTP_GET, [this](){
         if (!checkAuth()) return;
-        String h = "<!DOCTYPE html><html><head><title>RFID Config</title>" + String(dashStyle) + "</head><body><div class='container'><h1>RFID Configuration</h1>";
+        String h = "<!DOCTYPE html><html><head><title>RFID Config</title>" + getDashStyle() + "</head><body><div class='container'><h1>RFID Configuration</h1>";
         
         // Enable/Disable Form
-        h += "<form id='saveForm' method='POST' action='/rfid/save' style='margin-bottom:15px; padding:15px; background:#222; border-radius:8px;'>";
+        h += "<form id='saveForm' method='POST' action='/rfid/save' style='margin-bottom:15px; padding:15px; background:var(--stat-bg); border-radius:8px;'>";
         h += "<label>RFID Reader Status</label>";
         h += "<select name='en'><option value='1' " + String(rfid.isEnabled()?"selected":"") + ">ENABLED</option><option value='0' " + String(!rfid.isEnabled()?"selected":"") + ">DISABLED</option></select>";
         h += "<label>Buzzer Sound</label>";
@@ -88,10 +100,10 @@ void WebController::begin(const String& deviceId, bool apMode) {
         h += "</form>";
 
         // Learning Mode
-        h += "<div style='margin-bottom:15px; padding:5px; background:#222; border-radius:5px;'><h3>Learning Mode</h3>";
+        h += "<div style='margin-bottom:15px; padding:5px; background:var(--stat-bg); border-radius:5px;'><h3>Learning Mode</h3>";
         if(rfid.isLearning()) {
             h += "<script>setTimeout(function(){window.location.reload();}, 800);</script>";
-            h += "<p style='color:#ffcc00; animation:blink 1s infinite'>SCAN CARD NOW...</p><a href='/config/rfid' class='btn'>REFRESH</a>";
+            h += "<p style='color:var(--acc); animation:blink 1s infinite'>SCAN CARD NOW...</p><a href='/config/rfid' class='btn'>REFRESH</a>";
         } else {
             String last = rfid.getLastScannedUid();
             if(last.length() > 0) h += "<p>Last Scanned: <b>" + last + "</b> <button type='button' class='btn' style='padding:15px; width:auto; font-size:0.8em' onclick=\"document.getElementById('uid').value='" + last + "'\">COPY</button></p>";
@@ -100,7 +112,7 @@ void WebController::begin(const String& deviceId, bool apMode) {
         h += "</div>";
 
         // Add Tag Form
-        h += "<div style='margin-bottom:20px; padding:15px; background:#222; border-radius:8px;'><h3>Add New Tag</h3>";
+        h += "<div style='margin-bottom:20px; padding:15px; background:var(--stat-bg); border-radius:8px;'><h3>Add New Tag</h3>";
         h += "<form method='POST' action='/rfid/add'>";
         h += "<label>UID (Hex)</label><input name='uid' id='uid' placeholder='E.g. A1B2C3D4' required>";
         h += "<label>Tag Name</label><input name='name' placeholder='E.g. Noel Key' required>";
@@ -108,11 +120,11 @@ void WebController::begin(const String& deviceId, bool apMode) {
         h += "</form></div>";
 
         // Tag List
-        h += "<h3>Authorized Tags</h3><div style='overflow-x:auto'><table style='width:100%; border-collapse:collapse; color:#ccc;'>";
-        h += "<tr style='background:#333; text-align:left'><th style='padding:10px'>UID</th><th style='padding:10px'>Name</th><th style='padding:10px'>Status</th><th style='padding:10px'>Actions</th></tr>";
+        h += "<h3>Authorized Tags</h3><div style='overflow-x:auto'><table style='width:100%; border-collapse:collapse; color:var(--fg);'>";
+        h += "<tr style='background:var(--in-bg); text-align:left'><th style='padding:10px'>UID</th><th style='padding:10px'>Name</th><th style='padding:10px'>Status</th><th style='padding:10px'>Actions</th></tr>";
         std::vector<RfidTag> tags = rfid.getTags();
         for(const auto& t : tags) {
-            h += "<tr style='border-bottom:1px solid #444;'>";
+            h += "<tr style='border-bottom:1px solid var(--in-bd);'>";
             h += "<td style='padding:10px; font-family:monospace'>" + t.uid + "</td>";
             h += "<td style='padding:10px'>" + t.name + "</td>";
             h += "<td style='padding:10px'>" + String(t.active ? "<span style='color:#4caf50'>&#10004; Active</span>" : "<span style='color:#888'>&#10008; Inactive</span>") + "</td>";
@@ -283,15 +295,15 @@ void WebController::handleRoot() {
             webServer.send(302, "text/plain", "");
             return;
         }
-        String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width'><title>EVSE Setup</title>" + String(dashStyle) + "</head><body><div class='container'>";
+        String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width'><title>EVSE Setup</title>" + getDashStyle() + "</head><body><div class='container'>";
         h.reserve(1024);
         h += "<h1>EVSE NETWORK SETUP</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
-        h += "<div style='background:#2a2a2a; color:#ffcc00; padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid #ffcc00; font-weight:bold;'>WiFi Settings</div>";
+        h += "<div style='background:var(--stat-bg); color:var(--stat-fg); padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid var(--acc); font-weight:bold;'>WiFi Settings</div>";
         h += "<label>SSID</label><input name='ssid' id='ssid' value='"+config.wifiSsid+"'>";
-        h += "<button type='button' class='btn' style='background:#ffcc00' onclick='scanWifi()'>SCAN WIFI</button>";
+        h += "<button type='button' class='btn' onclick='scanWifi()'>SCAN WIFI</button>";
         h += "<div id='scan-res' style='text-align:left; margin-top:10px; max-height:150px; overflow-y:auto;'></div>";
         h += "<label>PASS</label><input name='pass' type='password' value='"+config.wifiPass+"'>";
-        h += "<div style='background:#2a2a2a; color:#ffcc00; padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid #ffcc00; font-weight:bold;'>IP Configuration</div>";
+        h += "<div style='background:var(--stat-bg); color:var(--stat-fg); padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid var(--acc); font-weight:bold;'>IP Configuration</div>";
         h += "<label>IP MODE</label><select name='mode' id='mode' onchange='toggleStaticFields()'><option value='0'>DHCP</option><option value='1' "+String(config.useStatic?"selected":"")+">STATIC IP</option></select>";
         h += "<label>IP</label><input name='ip' id='ip' value='"+config.staticIp+"'>";
         h += "<label>GW</label><input name='gw' id='gw' value='"+config.staticGw+"'>";
@@ -299,15 +311,15 @@ void WebController::handleRoot() {
         h += "<button class='btn' type='submit' style='margin-top:20px;'>SAVE & REBOOT</button>";
         h += "<div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form></div>";
         h += String(dynamicScript);
-        h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #004d40';};c.appendChild(e);});});}</script>";
+        h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid var(--in-bd)';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='var(--stat-bg)';this.style.borderLeft='4px solid var(--acc)';};c.appendChild(e);});});}</script>";
         h += "</body></html>";
         webServer.send(200, "text/html", h);
         return;
     }
 
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>" + deviceId + " - EVSE</title>" + String(dashStyle) + "</head><body><div class='container'>" + String(logoSvg);
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>" + deviceId + " - EVSE</title>" + getDashStyle() + "</head><body><div class='container'><div class='head-wrap'>" + getLogoSvg();
     h.reserve(1500);
-    h += "<h1>" + deviceId + "</h1><span class='version-tag'>CONTROLLER ONLINE</span>";
+    h += "<div><h1>" + deviceId + "</h1><span class='version-tag'>CONTROLLER ONLINE</span></div></div>";
     
     // Display critical RCM fault warning if residual current detected
     if (evse.isRcmEnabled() && evse.isRcmTripped()) {
@@ -372,7 +384,7 @@ void WebController::handleRoot() {
  */
 void WebController::handleSettingsMenu() {
     if (!checkAuth()) return;
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>EVSE Settings</title>" + String(dashStyle) + "</head><body><div class='container'><h1>EVSE SETTINGS</h1>";
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>EVSE Settings</title>" + getDashStyle() + "</head><body><div class='container'><h1>EVSE SETTINGS</h1>";
     h += "<span class='version-tag'>" + getVersionString() + "</span>";
     h += "<div class='diag-header'>System Diagnostics</div>";
     h += "<div class='stat-diag'>";
@@ -401,7 +413,7 @@ void WebController::handleSettingsMenu() {
  */
 void WebController::handleConfigEvse() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head><title>EVSE Config</title>") + dashStyle + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    String h = String("<!DOCTYPE html><html><head><title>EVSE Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Note: Changing Phase Mode will trigger a reboot.</div>";
     h += "<label>Max Current (A)<input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
     
@@ -427,7 +439,7 @@ void WebController::handleConfigEvse() {
  */
 void WebController::handleConfigRcm() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head><title>RCD Config</title>") + dashStyle + "</head><body><div class='container'><h1>RCD Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    String h = String("<!DOCTYPE html><html><head><title>RCD Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>RCD Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<div class='stat' style='border-left-color:#ff5252'><b>Residual Current Monitor</b><br>Disabling this safety feature is NOT recommended.</div>";
     h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Changing these settings will trigger a reboot.</div>";
     h += "<label>RCM Protection<select name='rcmen'><option value='1' "+String(config.rcmEnabled?"selected":"")+">ENABLED (Safe)</option><option value='0' "+String(!config.rcmEnabled?"selected":"")+">DISABLED (Unsafe)</option></select></label>";
@@ -440,7 +452,7 @@ void WebController::handleConfigRcm() {
  */
 void WebController::handleConfigMqtt() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head><title>MQTT Config</title>") + dashStyle + "</head><body><div class='container'><h1>MQTT Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    String h = String("<!DOCTYPE html><html><head><title>MQTT Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>MQTT Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Changing these settings will trigger a reboot.</div>";
     h += "<label>Enable MQTT<select name='mqen' id='mqen' onchange='toggleMqtt()'><option value='0' "+String(!config.mqttEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttEnabled?"selected":"")+">Enabled</option></select></label>";
     h += "<div id='mqfields'>";
@@ -459,7 +471,7 @@ void WebController::handleConfigMqtt() {
  */
 void WebController::handleConfigOcpp() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head><title>OCPP Config</title>") + dashStyle + "</head><body><div class='container'><h1>OCPP Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    String h = String("<!DOCTYPE html><html><head><title>OCPP Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>OCPP Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Changing these settings will trigger a reboot.</div>";
     h += "<label>Enable OCPP<select name='ocppen' id='ocppen' onchange='toggleOcpp()'><option value='0' "+String(!config.ocppEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.ocppEnabled?"selected":"")+">Enabled</option></select></label>";
     h += "<div id='ofields'>";
@@ -482,7 +494,7 @@ void WebController::handleConfigOcpp() {
  */
 void WebController::handleConfigTelnet() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head><title>Telnet Config</title>") + dashStyle + "</head><body><div class='container'><h1>Telnet Console</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    String h = String("<!DOCTYPE html><html><head><title>Telnet Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>Telnet Console</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<div class='stat'><b>Remote Logging</b><br>Connect via Telnet to view real-time logs. Uses same credentials as Web UI.</div>";
     h += "<label>Enable Telnet<select name='ten' id='ten' onchange='toggleTelnet()'><option value='0' "+String(!telnetServer.isEnabled()?"selected":"")+">Disabled</option><option value='1' "+String(telnetServer.isEnabled()?"selected":"")+">Enabled</option></select></label>";
     h += "<div id='tfields'>";
@@ -500,14 +512,14 @@ void WebController::handleConfigLed() {
     if (!checkAuth()) return;
     LedSettings ls = led.getConfig();
     
-    String h = String("<!DOCTYPE html><html><head><title>LED Config</title>") + dashStyle + "</head><body><div class='container'><h1>LED Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    String h = String("<!DOCTYPE html><html><head><title>LED Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>LED Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     
     h += "<label>Enable LEDs<select name='len' id='len' onchange='toggleLed()'><option value='0' "+String(!ls.enabled?"selected":"")+">Disabled</option><option value='1' "+String(ls.enabled?"selected":"")+">Enabled</option></select></label>";
     h += "<div id='lfields'>";
     h += "<label>Number of LEDs<input name='lnum' type='number' value='"+String(ls.numLeds)+"'></label>";
     
     auto addStateRow = [&](String label, String pfx, LedStateSetting s) {
-        h += "<div style='background:#222; padding:10px; margin-top:10px; border-radius:4px;'><b>"+label+"</b><br>";
+        h += "<div style='background:var(--stat-bg); padding:10px; margin-top:10px; border-radius:4px;'><b>"+label+"</b><br>";
         h += "<div style='display:flex; gap:10px;'><select name='"+pfx+"_c'>";
         
         // LED color options (using centralized names from RGBWL2812.h)
@@ -557,20 +569,20 @@ void WebController::handleConfigWifi() {
         if (dispGw == "192.168.1.1"   || dispGw == "") dispGw = WiFi.gatewayIP().toString();
         if (dispSn == "255.255.255.0" || dispSn == "") dispSn = WiFi.subnetMask().toString();
     }
-    String h = String("<!DOCTYPE html><html><head><title>Network Config</title>") + dashStyle + "</head><body><div class='container'><h1>Network Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
-    h += "<div style='background:#2a2a2a; color:#ffcc00; padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid #ffcc00; font-weight:bold;'>WiFi Settings</div>";
+    String h = String("<!DOCTYPE html><html><head><title>Network Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>Network Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    h += "<div style='background:var(--stat-bg); color:var(--stat-fg); padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid var(--acc); font-weight:bold;'>WiFi Settings</div>";
     h += "<label>SSID<input name='ssid' id='ssid' value='"+config.wifiSsid+"'></label>";
-    h += "<button type='button' class='btn' style='background:#ffcc00' onclick='scanWifi()'>SCAN WIFI</button>";
+    h += "<button type='button' class='btn' onclick='scanWifi()'>SCAN WIFI</button>";
     h += "<div id='scan-res' style='text-align:left; margin-top:10px; max-height:150px; overflow-y:auto;'></div>";
     h += "<label>Password<input name='pass' type='password' value='"+config.wifiPass+"'></label>";
-    h += "<div style='background:#2a2a2a; color:#ffcc00; padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid #ffcc00; font-weight:bold;'>IP Configuration</div>";
+    h += "<div style='background:var(--stat-bg); color:var(--stat-fg); padding:10px; margin:20px 0 10px 0; border-radius:4px; border-left:4px solid var(--acc); font-weight:bold;'>IP Configuration</div>";
     h += "<label>IP Assignment<select name='mode' id='mode' onchange='toggleStaticFields()'><option value='0' "+String(!config.useStatic?"selected":"")+">DHCP</option><option value='1' "+String(config.useStatic?"selected":"")+">STATIC IP</option></select></label>";
     h += "<label>Static IP<input name='ip' id='ip' value='"+dispIp+"'></label>";
     h += "<label>Gateway<input name='gw' id='gw' value='"+dispGw+"'></label>";
     h += "<label>Subnet<input name='sn' id='sn' value='"+dispSn+"'></label>";
     h += "<button class='btn' type='submit'>SAVE & REBOOT</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div>";
     h += String(dynamicScript);
-    h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid #333';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='#333';this.style.borderLeft='4px solid #004d40';};c.appendChild(e);});});}</script>";
+    h += "<script>function scanWifi(){document.getElementById('scan-res').innerHTML='Scanning...';fetch('/scan').then(r=>r.json()).then(d=>{var c=document.getElementById('scan-res');c.innerHTML='';d.forEach(n=>{var e=document.createElement('div');e.innerHTML=n.ssid+' <small>('+n.rssi+')</small>';e.style.padding='8px';e.style.borderBottom='1px solid var(--in-bd)';e.style.cursor='pointer';e.onclick=function(){document.getElementById('ssid').value=n.ssid;Array.from(c.children).forEach(x=>{x.style.background='transparent';x.style.borderLeft='none';});this.style.background='var(--stat-bg)';this.style.borderLeft='4px solid var(--acc)';};c.appendChild(e);});});}</script>";
     h += "</body></html>";
     webServer.send(200, "text/html", h);
 }
@@ -580,8 +592,9 @@ void WebController::handleConfigWifi() {
  */
 void WebController::handleConfigAuth() {
     if (!checkAuth()) return;
-    String h = String("<!DOCTYPE html><html><head><title>Security Config</title>") + dashStyle + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
+    String h = String("<!DOCTYPE html><html><head><title>Security Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<label>User<input name='wuser' value='"+config.wwwUser+"'></label><label>Pass<input name='wpass' type='password' value='"+config.wwwPass+"'></label>";
+    h += "<label>UI Theme<select name='theme'><option value='0' "+String(_theme==0?"selected":"")+">Yellow / Dark</option><option value='1' "+String(_theme==1?"selected":"")+">Blue / Light</option><option value='2' "+String(_theme==2?"selected":"")+">Blue / Dark</option><option value='3' "+String(_theme==3?"selected":"")+">Green / Light</option><option value='4' "+String(_theme==4?"selected":"")+">Green / Dark</option></select></label>";
     h += "<button class='btn' type='submit'>SAVE CREDENTIALS</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><br>";
     h += "<button class='btn btn-red' onclick=\"cfm('Reboot System?', function(){window.location='/reboot'})\">REBOOT DEVICE</button>";
     h += "<button class='btn btn-red' style='margin-top:20px' onclick=\"document.getElementById('dz').style.display='block';this.style.display='none'\">! DANGER ZONE !</button>";
@@ -603,6 +616,16 @@ void WebController::handleConfigAuth() {
 void WebController::handleSaveConfig() {
     if (!checkAuth() && !apMode) return;
     bool rebootRequired = false;
+
+    if (webServer.hasArg("theme")) {
+        int t = webServer.arg("theme").toInt();
+        if (t != _theme) {
+            _theme = t;
+            Preferences p; p.begin("web_cfg", false);
+            p.putInt("theme", _theme);
+            p.end();
+        }
+    }
 
     if (webServer.hasArg("maxcur")) {
         float newMax = webServer.arg("maxcur").toFloat();
@@ -724,7 +747,7 @@ void WebController::handleTestMode() {
     if (!checkAuth()) return;
     int maxDuty = (int)pilot.ampsToDuty(MAX_CURRENT);
     int initVal = 50;
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>PWM Test Lab</title>" + String(dashStyle) + "</head><body><div class='container'>";
+    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>PWM Test Lab</title>" + getDashStyle() + "</head><body><div class='container'>";
     h += "<h1>PWM TEST LAB</h1><span class='version-tag'>WARNING: FORCE PWM</span>";
     h += "<div class='stat' style='border-left-color:#673ab7'>PILOT VOLTAGE: <span id='pv'>--</span> V<br>CALC AMPS: <span id='ca'>--</span> A</div>";
     h += "<div style='margin:20px 0; padding:15px; background:#222; border-radius:8px;'>";
@@ -814,7 +837,7 @@ void WebController::handleEvseReset() {
  */
 void WebController::handleUpdate() {
     if(!checkAuth()) return;
-    String h = "<html><head>"+String(dashStyle)+"</head><body><div class='container'><h1>OTA UPDATE</h1><form method='POST' action='/doUpdate' enctype='multipart/form-data' onsubmit=\"var b=document.getElementById('btn');b.disabled=true;b.value='FLASHING';var d=0;setInterval(function(){d=(d+1)%4;var t='FLASHING';for(var i=0;i<d;i++)t+='.';b.value=t;},500);\">";
+    String h = "<html><head>"+getDashStyle()+"</head><body><div class='container'><h1>OTA UPDATE</h1><form method='POST' action='/doUpdate' enctype='multipart/form-data' onsubmit=\"var b=document.getElementById('btn');b.disabled=true;b.value='FLASHING';var d=0;setInterval(function(){d=(d+1)%4;var t='FLASHING';for(var i=0;i<d;i++)t+='.';b.value=t;},500);\">";
     h += "<input type='file' name='update' style='margin:20px 0;' required><br><input type='submit' id='btn' value='FLASH' class='btn'></form>";
     h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);

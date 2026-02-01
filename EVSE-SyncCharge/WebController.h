@@ -43,12 +43,15 @@ private:
     bool apMode;
     bool _rebootPending;
     unsigned long _rebootTimestamp;
+    int _theme;
 
     // Helpers
     bool checkAuth();
     String getUptime();
     String getRebootReason();
     String getVehicleStateText();
+    String getDashStyle();
+    String getLogoSvg();
 
     // Handlers
     void handleRoot();

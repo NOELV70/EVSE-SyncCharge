@@ -20,7 +20,7 @@ Integrated RCM Protection: Native support for Residual Current Monitors (RCM) wi
 The system executes a pre-charge safety check before every session and instantly trips the contactor if a fault is detected.
 
 Multi-Layer System Supervision:
-Hardware WDT: An 8-second hardware supervisor resets the MCU in the event of a network stack deadlock.
+Hardware WDT: An second hardware supervisor resets the MCU in the event of a network stack deadlock.
 ThrottleAlive™ Protocol: A centralized safety heartbeat that automatically throttles charging to a safe minimum, if external control signals (MQTT/OCPP) are lost, preventing grid overloads during network outages.
 Boot Loop Protection: A persistent "Strike System" using RTC memory tracks system stability across reboots. If the device enters a rapid crash loop (>5 crashes without stability), it engages a **Safety Lockout** to prevent dangerous relay chattering. The system intelligently distinguishes between a **Power Outage** (Safe Auto-Recovery) and a **System Crash** (Lockout).
 

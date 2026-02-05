@@ -2,6 +2,11 @@
 
 What ? A real-time link between your EV and your 'home'-grid, delivering millisecond-level signaling, OTA updates, and open IoT and/or OCCP integration.
 
+Most DIY EVSE controllers behave like smart relays — they turn power on and off, EVSE-SyncCharge is a charge controller.
+It implements proper pilot-signal behavior, respects the electrical and safety constraints of the vehicle’s onboard charger, and is designed to integrate into real-world energy-management systems.
+
+_If you’re building more than a power switch, this is the controller you want._
+
 <img width="1209" height="716" alt="image" src="https://github.com/user-attachments/assets/f9b5a872-c2fd-47f3-84fe-b304f740b171" />
 
 EVSE-SyncCharge is a firmware build to transform the ESP32 into a fully compliant, Vehicle Supply Equipment (EVSE) controller. 
@@ -72,6 +77,9 @@ Technical Specifications
 
 Real Charge Control. Not Just a Smart Relay.
 
-**EVSE-SyncCharge**__ : is a EV charge controller that understands the power of the pilot signal, enforces onboard-charger safety limits, and integrates seamlessly with professional energy-management systems.
+_**EVSE-SyncCharge**_ : 
+* is a EV charge controller that understands the power of the pilot signal,
+* enforces onboard-charger safety limits,
+* and integrates seamlessly with professional energy-management systems.
 
 Built for/by engineers. Trusted by infrastructure.

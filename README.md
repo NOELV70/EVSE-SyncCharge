@@ -1,14 +1,10 @@
 # EVSE-SyncCharge
 
-EVSE-SyncCharge: The Industrial-Grade ESP32 Firmware.
+What ? A real-time link between your EV and your 'home'-grid, delivering millisecond-level signaling, OTA updates, and open IoT and/or OCCP integration.
 
+<img width="1209" height="716" alt="image" src="https://github.com/user-attachments/assets/f9b5a872-c2fd-47f3-84fe-b304f740b171" />
 
-A real-time link between grid and EV, delivering millisecond-level signaling, OTA firmware updates, and open IoT integration.
-
-<img width="577" height="813" alt="image" src="https://github.com/user-attachments/assets/12d64285-cb6b-4eac-becc-d822a734c904" />
-
-
-EVSE-SyncCharge is a firmware architecture designed to transform the ESP32 into a fully compliant, safety-first Electric Vehicle Supply Equipment (EVSE) controller. 
+EVSE-SyncCharge is a firmware build to transform the ESP32 into a fully compliant, Vehicle Supply Equipment (EVSE) controller. 
 
 This Firmare implements the full SAE J1772 / IEC 61851 protocol stack, providing a robust foundation for dynamic load balancing, 
 solar energy matching.
@@ -16,16 +12,20 @@ solar energy matching.
 Safety-First Architecture
 Built on a "Safety" design philosophy, the system prioritizes physical protection of the vehicle and infrastructure above all else.
 
-Integrated RCM Protection: Native support for Residual Current Monitors (RCM) with automated IEC-compliant self-testing intervals. 
+* Integrated RCM Protection: Native support for Residual Current Monitors (RCM) with automated IEC-compliant self-testing intervals. 
 The system executes a pre-charge safety check before every session and instantly trips the contactor if a fault is detected.
 
 Multi-Layer System Supervision:
-Hardware WDT: An second hardware supervisor resets the MCU in the event of a network stack deadlock.
-ThrottleAlive™ Protocol: A centralized safety heartbeat that automatically throttles charging to a safe minimum, if external control signals (MQTT/OCPP) are lost, preventing grid overloads during network outages.
-Boot Loop Protection: A persistent "Strike System" using RTC memory tracks system stability across reboots. If the device enters a rapid crash loop (>5 crashes without stability), it engages a **Safety Lockout** to prevent dangerous relay chattering. The system intelligently distinguishes between a **Power Outage** (Safe Auto-Recovery) and a **System Crash** (Lockout).
 
-Synchronized Soft-Stop: Prevents contactor arcing by electronically terminating the charge via the Pilot signal, milliseconds before opening the mechanical relay.
-Anti-Chatter Hysteresis: Intelligent state-machine logic filters signal noise to prevent rapid relay cycling, extending hardware lifespan.
+* Hardware WDT: An second hardware supervisor resets the MCU in the event of a network stack deadlock.
+
+* ThrottleAlive™ Protocol: A centralized safety heartbeat that automatically throttles charging to a safe minimum, if external control signals (MQTT/OCPP) are lost, preventing grid overloads during network outages.
+
+* Boot Loop Protection: A persistent "Strike System" using RTC memory tracks system stability across reboots. If the device enters a rapid crash loop (>5 crashes without stability), it engages a **Safety Lockout** to prevent dangerous relay chattering. The system intelligently distinguishes between a **Power Outage** (Safe Auto-Recovery) and a **System Crash** (Lockout).
+
+* Synchronized Soft-Stop: Prevents contactor arcing by electronically terminating the charge via the Pilot signal, milliseconds before opening the mechanical relay.
+
+* Anti-Chatter Hysteresis: Intelligent state-machine logic filters signal noise to prevent rapid relay cycling, extending hardware lifespan.
 
 Universal Connectivity
 * Designed for the modern energy ecosystem, EVSE-SyncCharge speaks the languages of both Smart Homes and Commercial Grids.
@@ -38,7 +38,7 @@ Universal Connectivity
   Instantly exposes sensors for Current, Voltage, Pilot Duty, and Vehicle State without writing a single line of YAML.
 
 * Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
-*   **Customizable Web Interface:** Features a responsive dashboard with **5 selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green) and a "Dark Mode" architecture, allowing users to personalize the charger's appearance via the Admin panel.
+*   **Customizable Web Interface:** Features a responsive dashboard with **Different selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green), allowing users to personalize the charger's appearance via the Admin panel.
 
 Intelligent Energy Management
 Turn your EV into a grid-stabilizing asset.
@@ -48,7 +48,7 @@ The system supports runtime switching between single-phase and three-phase charg
 *   **Auto-Switching Logic:** (When configured in Auto Mode) Automatically engages L2+L3 when requested current exceeds 23A, and drops back to 1-Phase if current falls below 7A.
 *   **Safety Interlock:** Enforces a mandatory **15-second safety delay** during phase transitions to allow the vehicle's onboard charger capacitors to discharge, preventing hardware damage.
 
-Solar Excess Charging: Supports dynamic amperage adjustment (6A–64A) in real-time. 
+Solar Excess Charging: Supports dynamic amperage adjustment in real-time. 
 The unique "Solar Throttle" mode allows the system to modulate charging power to match solar production curve perfectly.
 
 Dynamic Load Balancing: Real-time API endpoints allow external energy meters to throttle the EVSE instantly when household loads (like heat pumps or ovens) peak.
@@ -60,21 +60,18 @@ Technical Specifications
   Security	WPA2/WPA3 WiFi, TLS/SSL for OCPP
   Updates	OTA (Over-The-Air) with Safety Interlock
   Diagnostics	Real-time "Cyan-Diag" Web Console
-
-Hardware Configuration
-  Component	Pin (GPIO)	Function
-  Relay L1	14	Controls Main Contactor (L1+N)
-  Relay L2+L3	13	Controls Phase Expansion Contactor
-  Pilot PWM	27	SAE J1772 Control Pilot (1kHz)
-  Pilot Feedback	36	ADC Input for Pilot State Detection
-
-Why EVSE-SyncCharge?
-  Most DIY controllers are just "smart relays." EVSE-SyncCharge is a Charge Controller. 
-  It understands the physics of the Pilot signal, respects the safety limits of the vehicle's Onboard Charger, and integrates seamlessly into professional energy management systems.
-
+  Settings saved to nvs.
+    
 <img width="599" height="747" alt="image" src="https://github.com/user-attachments/assets/c54b1611-8b2c-4dae-ab47-75383c240171" />
 <img width="578" height="894" alt="image" src="https://github.com/user-attachments/assets/615cf967-1121-4093-954a-ca737cb721dd" />
 <img width="544" height="877" alt="image" src="https://github.com/user-attachments/assets/2cb59e41-261e-4c45-a2f2-ec754b5e7882" />
 <img width="522" height="730" alt="image" src="https://github.com/user-attachments/assets/e8977c46-8974-4426-9abe-26caa5f04311" />
 <img width="432" height="895" alt="image" src="https://github.com/user-attachments/assets/2c37baa7-36bf-4647-b4c2-8c43871fd1a0" />
 <img width="462" height="717" alt="image" src="https://github.com/user-attachments/assets/9486444c-4c0a-4d8c-b392-407ee8619fe5" />
+
+
+Real Charge Control. Not Just a Smart Relay.
+
+**EVSE-SyncCharge**__ : is a EV charge controller that understands the power of the pilot signal, enforces onboard-charger safety limits, and integrates seamlessly with professional energy-management systems.
+
+Built for/by engineers. Trusted by infrastructure.

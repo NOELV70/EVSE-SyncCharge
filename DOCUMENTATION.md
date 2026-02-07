@@ -3,13 +3,16 @@
 #            Industrial-Grade ESP32 EV Charging Controller
 # ═══════════════════════════════════════════════════════════════════════════════
 
-> **Bridging the gap between the grid and your EV with smart PWM signaling, 
-> OTA agility, and MQTT-driven charging intelligence.**
+EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
+ 
+Your Solar Power, Your Car, Zero Waste, iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to.
+
+EVSE-SyncCharge - What ? A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT and/or OCCP integration.
 
 EVSE-SyncCharge is a mission-critical, WiFi-enabled Electric Vehicle Supply 
 Equipment (EVSE) controller firmware. Built on the dual-core ESP32, it implements 
 the full **SAE J1772 / IEC 61851** protocol stack while providing a modern, 
-developer-friendly IoT interface.
+developer-friendly IoT and web interface.
 
 Unlike "dumb" chargers that merely click a relay, this system provides a real-time 
 window into the charging process—enabling dynamic load balancing, solar energy 
@@ -41,6 +44,11 @@ matching, and industrial-grade safety monitoring.
 ### Remote Diagnostics
 - **Cyan-Diag Web Console**: Real-time Pilot Voltage, Free Heap, System Uptime
 - **Telnet Console**: Authenticated remote log streaming with session management
+
+### Enterprise Connectivity
+- **Secure Transport**: MQTT over TLS (MQTTS) and WebSockets (WSS)
+- **Smart Availability**: LWT (Last Will & Testament) for instant offline detection
+- **Resilience**: Exponential backoff reconnection strategies
 
 ---
 
@@ -87,6 +95,13 @@ Native support for Residual Current Monitors with IEC-compliant self-testing.
 - **Pre-Charge Test**: Safety check before every charging session
 - **Instant Trip**: Immediately opens contactor on fault detection
 
+### 6. Boot Loop Protection
+A persistent "Strike System" using RTC memory tracks system stability across reboots.
+
+- **Crash Detection**: Tracks rapid crash loops (>5 crashes without stability).
+- **Safety Lockout**: Engages if instability is detected to prevent dangerous relay chattering.
+- **Smart Recovery**: Distinguishes between **Power Outage** (Safe Auto-Recovery) and **System Crash** (Lockout).
+
 ---
 
 ## 🔐 ADVANCED ACCESS CONTROL
@@ -105,7 +120,29 @@ A fully-featured, web-configurable RFID authentication system.
 
 ---
 
-## 🏛️ TECHNICAL DEEP DIVE
+## 🌈 VISUAL STATUS FEEDBACK
+
+### Intelligent LED System
+The controller supports WS2812B (Neopixel) LED strips to provide immediate visual feedback on the charger's status. This eliminates the need to check the web dashboard for common states.
+
+**Fully Configurable:**
+Every state can be customized with specific **Colors** (Red, Green, Blue, Cyan, Magenta, Yellow, White) and **Effects** (Solid, Breathe, Flash, Flow, Pulse) via the Web UI.
+
+**Key Status Indicators:**
+| System State | Default Indication | Meaning |
+|--------------|--------------------|---------|
+| **Standby** | Green (Breathing) | Ready to charge, waiting for vehicle. |
+| **Connected** | Blue (Solid) | Vehicle plugged in, waiting for start command. |
+| **Charging** | Cyan (Flowing) | Active energy transfer. |
+| **Solar Idle** | Yellow (Pulse) | Paused due to low solar production (<6A). |
+| **RFID Accepted** | Green (Flash) | Authentication successful. |
+| **RFID Rejected** | Red (Flash) | Access denied. |
+| **Error/Fault** | Red (Fast Flash) | RCM trip, Diode fault, or Safety Lockout. |
+| **WiFi Setup** | Magenta (Pulse) | Access Point active for configuration. |
+
+---
+
+## �️ TECHNICAL DEEP DIVE
 
 ### The SAE J1772 State Machine
 
@@ -172,6 +209,11 @@ cmnd/EVSE-[ID]/limit   → Set maximum current (6A–80A)
 - **"Solar Throttle" mode**: Modulates power to match solar production curve
 - Sub-6A charging option for maximum PV utilization
 
+### Dynamic 1-Phase / 3-Phase Switching
+Runtime switching for optimal Solar PV integration (1.4kW to 22kW range).
+- **Auto-Switching**: Engages L2+L3 when current > 23A; drops to 1-Phase < 7A.
+- **Safety Interlock**: Enforces mandatory **15-second safety delay** during transitions to discharge vehicle capacitors.
+
 ### Dynamic Load Balancing
 - Real-time MQTT/OCPP endpoints for external energy meters
 - Instantly throttle EVSE when household loads peak
@@ -179,24 +221,39 @@ cmnd/EVSE-[ID]/limit   → Set maximum current (6A–80A)
 
 ---
 
-## 📱 DEPLOYMENT & CONFIGURATION
+##  QUICK START GUIDE
 
-### First Boot
-1. Device starts as WiFi Access Point: `EVSE-XXXX-SETUP`
-2. Connect via smartphone/laptop
-3. Captive portal auto-opens
+### Phase 1: Initial Connectivity
+Out of the box, the controller broadcasts its own WiFi network for configuration.
 
-### Web Setup
-- Enter WiFi credentials
-- Configure MQTT broker details
-- Set maximum current limits
-- Configure OCPP backend (optional)
+1.  **Power Up**: Energize the controller.
+2.  **Connect**: On your smartphone or laptop, search for a WiFi network named **`EVSE-XXXX-SETUP`** (where XXXX is the unique device ID).
+3.  **Captive Portal**: Connect to this network. A "Sign In to Network" page should appear automatically.
+    -   *If not, open a browser and navigate to `http://192.168.4.1`*
 
-### Real-Time Control
-- Dashboard: `http://evse-xxxx.local`
-- Manual start/stop override
-- Cyan-Diag diagnostic block
-- Settings management
+### Phase 2: Network Configuration
+1.  **WiFi Setup**:
+    -   Click **"Scan WiFi"** to find your home network.
+    -   Select your SSID and enter the password.
+2.  **IP Assignment**:
+    -   **DHCP**: Default. Good for simple setups.
+    -   **Static IP (Recommended)**: Select "Static IP". The system will auto-detect your current Subnet and Gateway. Enter a fixed IP (e.g., `192.168.1.200`) to ensure the device is always reachable at the same address.
+3.  **Save & Reboot**: Click Save. The device will restart and connect to your home network.
+
+### Phase 3: MQTT & Smart Home Setup
+Once connected to your home WiFi, access the dashboard at `http://evse-xxxx.local` (or the IP you assigned).
+
+1.  Navigate to **Settings > MQTT Configuration**.
+2.  **Broker Details**:
+    -   **Enable MQTT**: Toggle to "Enabled".
+    -   **Host**: Enter your broker IP (e.g., `192.168.1.10`) or hostname.
+    -   **Port**: Default `1883` (TCP) or `8883` (TLS).
+3.  **Security (v5.7+)**:
+    -   **Use TLS**: Enable for encrypted MQTTS connections.
+    -   **Use WebSockets**: Enable if your broker requires WS/WSS.
+4.  **Home Assistant**:
+    -   Ensure your Home Assistant has the MQTT integration enabled.
+    -   The charger will automatically appear in HA as a new device with controls for **Current Limit**, **Start/Stop**, and sensors for **Power**, **Voltage**, and **Vehicle State**.
 
 ---
 

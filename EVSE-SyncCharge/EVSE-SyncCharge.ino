@@ -9,13 +9,24 @@
  * =========================================================================================
  *
  * CORE CAPABILITIES:
- *   - Smart Protocol Management: Full SAE J1772 implementation with 1kHz PWM generation
- *     and high-precision ADC feedback for vehicle state detection (States A-F).
- *   - IoT & Connectivity: Native MQTT stack with Home Assistant Auto-Discovery,
- *     Captive Portal for zero-preset configuratioc:\Users\Noel\Downloads\Config_tasmota_99F9AC_6572_13.2.0 (3).dmp.crdownloadn, and OTA firmware updates.
- *   - Network Intelligence: One-Click transition from DHCP to Static IP with auto-detection.
- *   - Diagnostics: "Cyan-Diag" console showing real-time Pilot Voltage, Heap, and Uptime.
+ *   -  Smart Protocol Management: Full 1kHz PWM generation and high-precision ADC feedback 
+ *      for vehicle state detection (States A-F).
+ *   -  Zero-Preset Configuration: No hardcoded credentials. All settings—WiFi, MQTT, and 
+ *      Amperage limits—are configured via a Captive Web Portal and stored in NVS.
+ *   -  Fail-Safe Watchdog (WDT): Continuous hardware-level monitoring ensures the system 
+ *      automatically recovers from any software "hangs" or network lockups.
+ *   -  One-Click Networking: Intelligent transition from DHCP to Static IP. The system 
+ *      auto-detects your network’s parameters to suggest the perfect configuration.
+ *   -  Enterprise Connectivity: Secure MQTT over TLS (MQTTS) and WebSockets (WSS) with 
+ *      LWT (Last Will & Testament) availability monitoring.
+ *   -  Visual Status Feedback: Native support for WS2812B addressable LEDs, providing 
+ *      intuitive color-coded status for Charging, Error, RFID Auth, and Solar Wait states.
+ *   -  OCPP 1.6J Support: Optional integration with OCPP backends for advanced session  
+ *   -  Cyan-Diag Console: A deep-dive diagnostic web interface showing Pilot Voltage, 
+ *      Free Heap, and System Uptime in real-time. 
+ *   -  Telnet Remote Logging: Stream real-time logs to any Telnet client for remote    
  *
+ *  
  * SAFETY ARCHITECTURE:
  *   - Hardware Watchdog (WDT): second hardware supervisor to reset MCU on deadlocks.
  *   - Synchronized PWM-Abort: Instantly switches Pilot to +12V (100% duty) on stop/fault
@@ -26,10 +37,12 @@
  *     periodic self-testing (IEC 62955 / IEC 61851 compliance).
  *   - Boot Loop Protection: RTC-backed crash tracking prevents relay chattering during
  *     instability while allowing auto-recovery after power outages.
+ * 
+ * 
  *
  * HARDWARE CONFIGURATION:
  *   - MCU: ESP32 (Dual Core)
- *   - Relay Control: GPIO 16 (High-Voltage AC Output)
+ *   - Relay Control: GPIO's (High-Voltage AC Output)
  *   - Pilot PWM: GPIO 27 (1kHz Control Signal)
  *   - Pilot Feedback: GPIO 36 (ADC Input)
  *
@@ -68,6 +81,12 @@
 #define BAUD_RATE 115200
 #define WDT_TIMEOUT 8 
 
+/* =========================
+ * EVSE Task Timing Constants
+ * ========================= */
+constexpr unsigned long EVSE_LOOP_FAST_MS = 3UL;   // Fast polling when vehicle connected (safety/PWM)
+constexpr unsigned long EVSE_LOOP_IDLE_MS = 50UL;  // Slow polling when idle (power saving)
+
 // Singletons
 Pilot pilot;
 Rcm rcm;
@@ -89,7 +108,7 @@ EvseLedState g_rfidFeedbackState = LED_OFF_STATE;
 
 static void applyMqttConfig() {
     if(config.mqttEnabled && config.mqttHost.length() > 0) {
-        mqttController.begin(config.mqttHost.c_str(), config.mqttPort, config.mqttUser.c_str(), config.mqttPass.c_str(), deviceId);
+        mqttController.begin(config.mqttHost.c_str(), config.mqttPort, config.mqttUser.c_str(), config.mqttPass.c_str(), deviceId, config.mqttUseTls);
     }
 }
 
@@ -115,7 +134,7 @@ void updateLedState() {
         return;
     }
     // Priority 3: Solar Throttling (Low Current)
-    if (evse.getCurrentLimit() < 6.0f && evse.isVehicleConnected()) {
+    if (evse.getCurrentLimit() < MIN_CURRENT && evse.isVehicleConnected()) {
         led.setState(LED_SOLAR_IDLE);
         return;
     }
@@ -149,11 +168,11 @@ void evseLoopTask(void* parameter) {
         }
 
         evse.loop();
-        // Dynamic polling: Fast (2ms) when connected for safety/PWM response, Slow (50ms) when idle.
+        // Dynamic polling: Fast when connected for safety/PWM response, Slow when idle.
         if (evse.getVehicleState() != VEHICLE_NOT_CONNECTED) {
-            vTaskDelay(pdMS_TO_TICKS(3));
+            vTaskDelay(pdMS_TO_TICKS(EVSE_LOOP_FAST_MS));
         } else {
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(EVSE_LOOP_IDLE_MS));
         }
         updateLedState();
         led.loop();
@@ -165,6 +184,11 @@ void setup() {
     evse.preinit_hard(); 
     
     Serial.begin(BAUD_RATE);
+    
+    WiFi.onEvent([](arduino_event_id_t event, arduino_event_info_t info){
+        if (event == ARDUINO_EVENT_WIFI_STA_CONNECTED) mqttController.incrementWifiConnectCount();
+    });
+
     bootCount.begin();
     
     led.begin();

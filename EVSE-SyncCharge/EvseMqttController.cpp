@@ -11,17 +11,29 @@
 
 #include "EvseMqttController.h"
 #include "EvseLogger.h"
+#include "EvseConfig.h"
+#include "os_esp_malloc.h"
+#include <esp_heap_caps.h>
+#include "WebSocketClientAdapter.h"
 
 EvseMqttController::EvseMqttController(EvseCharge& evseCharge, Pilot& pilotRef)
-    : mqttClient(mqttWiFiClient), evse(&evseCharge), pilot(&pilotRef) { }
+    : mqttClient(mqttWiFiClient), evse(&evseCharge), pilot(&pilotRef) {
+    // Client will be set properly in begin() based on TLS setting
+}
+
+// Static instance for WebSocket adapter to avoid header dependency changes for now
+static WebSocketClientAdapter* _wsAdapter = nullptr;
+static bool _useWs = false;
 
 void EvseMqttController::begin(const char* mqttServer, int mqttPort,
                                const char* mqttUser, const char* mqttPass,
-                               const String& deviceIdString)
+                               const String& deviceIdString, bool useTls, bool useWs, const char* wsUrl)
 {
     // Store the server host locally so the loop knows whether to run
     serverHost = mqttServer ? String(mqttServer) : "";
     deviceId = deviceIdString;
+    _useTls = useTls;
+    _useWs = useWs;
     
     // If no host is provided, we stop here. The loop() guard will handle the rest.
     if (serverHost.length() == 0) {
@@ -53,6 +65,26 @@ void EvseMqttController::begin(const char* mqttServer, int mqttPort,
     topicRcmFault               = "evse/" + deviceId + "/rcm/fault";
     topicPhaseMode              = "evse/" + deviceId + "/phaseMode";
     topicPower                  = "evse/" + deviceId + "/power";
+    topicAvailability           = "evse/" + deviceId + "/availability";
+
+    // --- TLS Configuration ---
+    if (_useWs) {
+        if (!_wsAdapter) _wsAdapter = new WebSocketClientAdapter();
+        
+        // Initialize WebSocket connection
+        // Note: PubSubClient will NOT call connect() on the client, it assumes we handle the connection
+        // But PubSubClient calls connected() to check status.
+        _wsAdapter->begin(mqttServer, mqttPort, wsUrl ? wsUrl : "/mqtt", _useTls);
+        
+        mqttClient.setClient(*_wsAdapter);
+        logger.infof("[MQTT] WebSocket enabled (%s://%s:%d%s)", _useTls ? "WSS" : "WS", mqttServer, mqttPort, wsUrl);
+    } else if (_useTls) {
+        mqttWiFiClientSecure.setInsecure(); // Accept any certificate (or use setCACert for validation)
+        mqttClient.setClient(mqttWiFiClientSecure);
+        logger.info("[MQTT] TLS enabled (insecure mode - no cert validation)");
+    } else {
+        mqttClient.setClient(mqttWiFiClient);
+    }
 
     mqttClient.setServer(mqttServer, mqttPort);
     mqttClient.setCallback([this](char* topic, byte* payload, unsigned int length) {
@@ -60,9 +92,9 @@ void EvseMqttController::begin(const char* mqttServer, int mqttPort,
     });
 
     // Increase buffer size to handle long Home Assistant Discovery payloads
-    mqttClient.setBufferSize(1024);
+    mqttClient.setBufferSize(2048);
 
-    logger.infof("[MQTT] Configured for server: %s:%d", mqttServer, mqttPort);
+    logger.infof("[MQTT] Configured for server: %s:%d (%s)", mqttServer, mqttPort, _useTls ? "TLS" : "Plain");
 }
 
 void EvseMqttController::loop()
@@ -73,23 +105,30 @@ void EvseMqttController::loop()
         return;
     }
 
-    static unsigned long lastAttempt = 0;
+    // Pump the WebSocket loop if active
+    if (_useWs && _wsAdapter) _wsAdapter->loop();
 
-    // --- MQTT reconnect logic ---
-    if (!mqttClient.connected() && (millis() - lastAttempt > 5000))
+    // --- MQTT reconnect logic with exponential backoff ---
+    if (!mqttClient.connected() && (millis() - _lastReconnectAttempt > _reconnectDelay))
     {
         bool connected = false;
-        logger.info("[MQTT] Attempting reconnect...");
+        logger.infof("[MQTT] Attempting reconnect (delay was %lums)...", _reconnectDelay);
         
+        // Use availability topic as LWT (Last Will Testament)
         if (mqttUser.length()) {
-            connected = mqttClient.connect(deviceId.c_str(), mqttUser.c_str(), mqttPass.c_str(), topicState.c_str(), 1, true, "offline");
+            connected = mqttClient.connect(deviceId.c_str(), mqttUser.c_str(), mqttPass.c_str(), 
+                                           topicAvailability.c_str(), 1, true, "offline");
         } else {
-            connected = mqttClient.connect(deviceId.c_str(), topicState.c_str(), 1, true, "offline");
+            connected = mqttClient.connect(deviceId.c_str(), 
+                                           topicAvailability.c_str(), 1, true, "offline");
         }
 
         if (connected)
         {
             logger.info("[MQTT] Connected!");
+            
+            // Reset exponential backoff on successful connection
+            _reconnectDelay = RECONNECT_MIN;
 
             mqttClient.subscribe(topicCommand.c_str());
             mqttClient.subscribe(topicSetCurrent.c_str());
@@ -99,6 +138,8 @@ void EvseMqttController::loop()
             mqttClient.subscribe(topicSetFailsafeTimeout.c_str());
             mqttClient.subscribe(topicRcmConfig.c_str());
 
+            // Publish availability with QoS 1 (retained) - critical for HA
+            mqttClient.publish(topicAvailability.c_str(), "online", true);
             mqttClient.publish(topicState.c_str(), "online", true);
 
             // Sync current configuration state to MQTT
@@ -123,12 +164,24 @@ void EvseMqttController::loop()
             lastPhaseMode = -1; 
 
             publishHADiscovery();
+            mqttClient.loop(); // Process outgoing messages before continuing
+            incrementMqttConnectCount();
+            publishDiagnosticDiscovery();
+            mqttClient.loop(); // Ensure discovery configs are sent
+            
+            // Delay initial diagnostics publish to allow HA to process discovery
+            // The periodic loop will publish diagnostics after 5 seconds
+            _pendingDiagnosticsPublish = true;
+            _diagnosticsPublishTime = millis() + 5000UL;
         }
         else
         {
-            logger.errorf("[MQTT] Connect failed, rc=%d", mqttClient.state());
+            logger.errorf("[MQTT] Connect failed, rc=%d (next retry in %lums)", 
+                          mqttClient.state(), _reconnectDelay);
+            // Exponential backoff: double the delay, cap at max
+            _reconnectDelay = min(_reconnectDelay * 2, RECONNECT_MAX);
         }
-        lastAttempt = millis();
+        _lastReconnectAttempt = millis();
     }
 
     // Run the internal PubSubClient processing
@@ -137,7 +190,8 @@ void EvseMqttController::loop()
     // --- State Reporting (Only on change) ---
     STATE_T s = evse->getState();
     if (s != lastState) {
-        char buf[8]; itoa((int)s, buf, 10);
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%d", (int)s);
         mqttClient.publish(topicState.c_str(), buf, true);
         lastState = s;
     }
@@ -215,6 +269,20 @@ void EvseMqttController::loop()
         snprintf(buf, sizeof(buf), "%.2f", powerKw);
         mqttClient.publish(topicPower.c_str(), buf, true);
         lastPower = powerKw;
+    }
+
+    // --- Delayed Initial Diagnostics (After Discovery) ---
+    // This ensures Home Assistant has time to process discovery configs
+    if (_pendingDiagnosticsPublish && millis() >= _diagnosticsPublishTime) {
+        _pendingDiagnosticsPublish = false;
+        logger.info("[MQTT] Publishing initial diagnostics (delayed)");
+        publishDiagnostics();
+    }
+
+    // --- Periodic Diagnostics (Every 60s) ---
+    if (millis() - _lastDiagTime > 60000 && mqttClient.connected()) {
+        _lastDiagTime = millis();
+        publishDiagnostics();
     }
 }
 
@@ -356,88 +424,192 @@ void EvseMqttController::onRcmConfigChanged(std::function<void(bool)> callback) 
 void EvseMqttController::publishHADiscovery()
 {
     const char* base = "homeassistant";
-    char topicBuf[128];
-    char payloadBuf[512];
+    const size_t topicSz = 128;
+    const size_t payloadSz = 768;  // Increased for availability config
+    
+    char* topicBuf = (char*)os_esp_malloc_large(topicSz);
+    char* payloadBuf = (char*)os_esp_malloc_large(payloadSz);
+
+    // Verify if the allocation landed in PSRAM or Internal RAM
+    if (topicBuf) logger.infof("[MQTT] HA Discovery Buffer: %s", esp_ptr_external_ram(topicBuf) ? "PSRAM" : "Internal RAM");
+
+    if (!topicBuf || !payloadBuf) {
+        logger.error("[MQTT] Failed to allocate memory for HA Discovery");
+        if (topicBuf) os_esp_free(topicBuf);
+        if (payloadBuf) os_esp_free(payloadBuf);
+        return;
+    }
+
+    // Common availability config for all entities
+    // This makes HA show entities as "unavailable" when device goes offline
+    String availCfg = String(",\"avty_t\":\"") + topicAvailability + "\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\"";
+    String devCfg = ",\"dev\":{\"ids\":[\"" + deviceId + "\"],\"mf\":\"NVL\",\"mdl\":\"EVSE v1\",\"name\":\"EVSE Charger\"}";
+    String devCfgShort = ",\"dev\":{\"ids\":[\"" + deviceId + "\"]}";
 
     // --- Switch: Start/Stop charging ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_charging/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Charging\",\"state_topic\":\"%s\",\"command_topic\":\"%s\",\"unique_id\":\"%s_charging\",\"device\":{\"identifiers\":[\"%s\"],\"manufacturer\":\"NVL\",\"model\":\"EVSE v1\",\"name\":\"EVSE Charger\"}}",
-             topicState.c_str(), topicCommand.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/switch/%s_charging/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"Charging\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"pl_on\":\"start\",\"pl_off\":\"stop\",\"stat_on\":\"1\",\"stat_off\":\"0\",\"uniq_id\":\"%s_charging\"%s%s}",
+             topicState.c_str(), topicCommand.c_str(), deviceId.c_str(), availCfg.c_str(), devCfg.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: Current Limit ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_current_limit/config", base, deviceId.c_str());
-    // Max is set to the configured maximum current of the device
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Total Current\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"min\":6.0,\"max\":%.1f,\"step\":1.0,\"unique_id\":\"%s_current_limit\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicSetCurrent.c_str(), topicCurrentLimitState.c_str(), evse->getMaxCurrent(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/number/%s_current_limit/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"Total Current\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"unit_of_meas\":\"A\",\"min\":6.0,\"max\":%.1f,\"step\":1.0,\"uniq_id\":\"%s_current_limit\"%s%s}",
+             topicSetCurrent.c_str(), topicCurrentLimitState.c_str(), evse->getMaxCurrent(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: Current ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_current/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Current\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"A\",\"unique_id\":\"%s_current\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicCurrent.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/sensor/%s_current/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"Current\",\"stat_t\":\"%s\",\"unit_of_meas\":\"A\",\"uniq_id\":\"%s_current\"%s%s}",
+             topicCurrent.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: PWM Duty ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_pwm/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"PWM Duty\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"unique_id\":\"%s_pwm\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/sensor/%s_pwm/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"PWM Duty\",\"stat_t\":\"%s\",\"unit_of_meas\":\"%%\",\"uniq_id\":\"%s_pwm\"%s%s}",
+             topicPwmDuty.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: Vehicle State ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_vehicle/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Vehicle\",\"state_topic\":\"%s\",\"unique_id\":\"%s_vehicle\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicVehicle.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/sensor/%s_vehicle/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"Vehicle\",\"stat_t\":\"%s\",\"uniq_id\":\"%s_vehicle\"%s%s}",
+             topicVehicle.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
-    // --- Number: PWM Test for HA slider ---
     // --- Switch: PWM Test enable/disable ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_pwm_test_switch/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"PWM Test Switch\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"enable\",\"payload_off\":\"disable\",\"unique_id\":\"%s_pwm_test_switch\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/switch/%s_pwm_test_switch/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"PWM Test Switch\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"pl_on\":\"enable\",\"pl_off\":\"disable\",\"uniq_id\":\"%s_pwm_test_switch\"%s%s}",
+             topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: PWM Test for HA slider (sends percent to test topic) ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_pwm_test/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"PWM Test\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"%%\",\"min\":0,\"max\":100,\"step\":1,\"unique_id\":\"%s_pwm_test\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/number/%s_pwm_test/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"PWM Test\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"unit_of_meas\":\"%%\",\"min\":0,\"max\":100,\"step\":1,\"uniq_id\":\"%s_pwm_test\"%s%s}",
+             topicCurrentTest.c_str(), topicPwmDuty.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Switch: Failsafe Enable ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_failsafe/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"MQTT Failsafe\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_failsafe\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicSetFailsafe.c_str(), topicFailsafeState.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/switch/%s_failsafe/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"MQTT Failsafe\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"pl_on\":\"1\",\"pl_off\":\"0\",\"uniq_id\":\"%s_failsafe\"%s%s}",
+             topicSetFailsafe.c_str(), topicFailsafeState.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Number: Failsafe Timeout ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/number/%s_failsafe_t/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Failsafe Timeout\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"s\",\"min\":10,\"max\":3600,\"unique_id\":\"%s_failsafe_t\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicSetFailsafeTimeout.c_str(), topicFailsafeTimeoutState.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/number/%s_failsafe_t/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"Failsafe Timeout\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"unit_of_meas\":\"s\",\"min\":10,\"max\":3600,\"uniq_id\":\"%s_failsafe_t\"%s%s}",
+             topicSetFailsafeTimeout.c_str(), topicFailsafeTimeoutState.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Binary Sensor: RCM Fault ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/binary_sensor/%s_rcm_fault/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"RCM Fault\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"device_class\":\"safety\",\"unique_id\":\"%s_rcm_fault\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicRcmFault.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/binary_sensor/%s_rcm_fault/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"RCM Fault\",\"stat_t\":\"%s\",\"pl_on\":\"1\",\"pl_off\":\"0\",\"dev_cla\":\"safety\",\"uniq_id\":\"%s_rcm_fault\"%s%s}",
+             topicRcmFault.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Switch: RCM Enable ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/switch/%s_rcm_enable/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"RCM Protection\",\"command_topic\":\"%s\",\"state_topic\":\"%s\",\"payload_on\":\"1\",\"payload_off\":\"0\",\"unique_id\":\"%s_rcm_enable\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicRcmConfig.c_str(), topicRcmState.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/switch/%s_rcm_enable/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"RCM Protection\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"pl_on\":\"1\",\"pl_off\":\"0\",\"uniq_id\":\"%s_rcm_enable\"%s%s}",
+             topicRcmConfig.c_str(), topicRcmState.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: Phase Mode ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_phase_mode/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Phase Mode\",\"state_topic\":\"%s\",\"icon\":\"mdi:sine-wave\",\"unique_id\":\"%s_phase_mode\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicPhaseMode.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/sensor/%s_phase_mode/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"Phase Mode\",\"stat_t\":\"%s\",\"ic\":\"mdi:sine-wave\",\"uniq_id\":\"%s_phase_mode\"%s%s}",
+             topicPhaseMode.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
     // --- Sensor: Real-Time Power ---
-    snprintf(topicBuf, sizeof(topicBuf), "%s/sensor/%s_power/config", base, deviceId.c_str());
-    snprintf(payloadBuf, sizeof(payloadBuf), "{\"name\":\"Estimated Power\",\"state_topic\":\"%s\",\"unit_of_measurement\":\"kW\",\"device_class\":\"power\",\"state_class\":\"measurement\",\"unique_id\":\"%s_power\",\"device\":{\"identifiers\":[\"%s\"]}}",
-             topicPower.c_str(), deviceId.c_str(), deviceId.c_str());
+    snprintf(topicBuf, topicSz, "%s/sensor/%s_power/config", base, deviceId.c_str());
+    snprintf(payloadBuf, payloadSz, "{\"name\":\"Estimated Power\",\"stat_t\":\"%s\",\"unit_of_meas\":\"kW\",\"dev_cla\":\"power\",\"stat_cla\":\"measurement\",\"uniq_id\":\"%s_power\"%s%s}",
+             topicPower.c_str(), deviceId.c_str(), availCfg.c_str(), devCfgShort.c_str());
     mqttClient.publish(topicBuf, payloadBuf, true);
 
+    os_esp_free(topicBuf);
+    os_esp_free(payloadBuf);
+
     logger.info("[MQTT] HA discovery published");
+}
+
+String EvseMqttController::getRestartReason() {
+    esp_reset_reason_t reason = esp_reset_reason();
+    switch (reason) {
+        case ESP_RST_POWERON: return "Power On";
+        case ESP_RST_SW: return "Software Reset";
+        case ESP_RST_PANIC: return "Crash/Panic";
+        case ESP_RST_INT_WDT: return "Interrupt WDT";
+        case ESP_RST_TASK_WDT: return "Task WDT";
+        case ESP_RST_WDT: return "Other WDT";
+        case ESP_RST_DEEPSLEEP: return "Deep Sleep";
+        case ESP_RST_BROWNOUT: return "Brownout";
+        case ESP_RST_SDIO: return "SDIO Reset";
+        default: return "Unknown";
+    }
+}
+
+int EvseMqttController::getSignalQuality(int rssi) {
+    if (rssi <= -100) return 0;
+    if (rssi >= -50) return 100;
+    return 2 * (rssi + 100);
+}
+
+void EvseMqttController::publishDiagnosticDiscovery() {
+    const char* base = "homeassistant";
+    String diagTopic = "evse/" + deviceId + "/diagnostics";
+    
+    struct DiagItem { const char* id; const char* name; const char* icon; const char* unit; const char* dev_class; };
+    DiagItem items[] = {
+        {"ip", "IP Address", "mdi:ip-network", "", ""},
+        {"ssid", "WiFi SSID", "mdi:wifi", "", ""},
+        {"rssi", "WiFi RSSI", "mdi:wifi-strength-2", "dBm", "signal_strength"},
+        {"signal", "WiFi Signal", "mdi:signal", "%", ""},
+        {"uptime", "Uptime", "mdi:clock-outline", "s", "duration"},
+        {"fw_ver", "Firmware Version", "mdi:chip", "", ""},
+        {"rst_reason", "Restart Reason", "mdi:restart", "", ""},
+        {"wifi_count", "WiFi Connects", "mdi:counter", "times", ""},
+        {"mqtt_count", "MQTT Connects", "mdi:counter", "times", ""},
+        {"free_heap", "Free Heap", "mdi:memory", "B", ""},
+        {"free_psram", "Free PSRAM", "mdi:memory", "B", ""}
+    };
+
+    for (const auto& item : items) {
+        String topic = String(base) + "/sensor/" + deviceId + "_diag_" + item.id + "/config";
+        String payload = "{";
+        payload += "\"name\":\"" + String(item.name) + "\",";
+        payload += "\"stat_t\":\"" + diagTopic + "\",";
+        payload += "\"val_tpl\":\"{{ value_json." + String(item.id) + " }}\",";
+        payload += "\"uniq_id\":\"" + deviceId + "_diag_" + item.id + "\",";
+        payload += "\"icon\":\"" + String(item.icon) + "\",";
+        payload += "\"ent_cat\":\"diagnostic\",";
+        if (strlen(item.unit) > 0) payload += "\"unit_of_meas\":\"" + String(item.unit) + "\",";
+        if (strlen(item.dev_class) > 0) payload += "\"dev_cla\":\"" + String(item.dev_class) + "\",";
+        payload += "\"dev\":{\"ids\":[\"" + deviceId + "\"]}";
+        payload += "}";
+        
+        mqttClient.publish(topic.c_str(), payload.c_str(), true);
+    }
+}
+
+void EvseMqttController::publishDiagnostics() {
+    if (!mqttClient.connected()) return;
+    
+    String diagTopic = "evse/" + deviceId + "/diagnostics";
+    String json = "{";
+    // Fix: Avoid unescaped quotes in JSON from getVersionString()
+    String fwVer = "Kernel: " + String(KERNEL_VERSION) + " (" + String(KERNEL_CODENAME) + ")";
+    json += "\"fw_ver\":\"" + fwVer + "\",";
+    json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+    json += "\"uptime\":" + String(millis() / 1000) + ",";
+    json += "\"mqtt_count\":" + String(mqttConnectCount) + ",";
+    json += "\"wifi_count\":" + String(wifiConnectCount) + ",";
+    json += "\"rst_reason\":\"" + getRestartReason() + "\",";
+    json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+    json += "\"signal\":" + String(getSignalQuality(WiFi.RSSI())) + ",";
+    json += "\"ssid\":\"" + WiFi.SSID() + "\"";
+    json += ",\"free_heap\":" + String(ESP.getFreeHeap());
+    json += ",\"free_psram\":" + String(ESP.getFreePsram());
+    json += "}";
+    
+    if (!mqttClient.publish(diagTopic.c_str(), json.c_str(), true)) {
+        logger.warn("[MQTT] Failed to publish diagnostics");
+    }
 }

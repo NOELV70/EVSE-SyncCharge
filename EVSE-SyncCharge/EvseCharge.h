@@ -25,6 +25,7 @@ typedef void (*EvseEventHandler)();
 class EvseCharge {
 public:
     EvseCharge(Pilot &pilotRef);
+    ~EvseCharge();
     void preinit_hard();
     void setup(ChargingSettings settings_);
     void loop();

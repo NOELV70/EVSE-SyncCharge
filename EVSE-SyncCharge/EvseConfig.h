@@ -31,6 +31,7 @@ struct AppConfig {
     uint16_t mqttPort = 1883;
     String mqttUser;
     String mqttPass;
+    bool mqttUseTls = false;
     String wwwUser = "admin";
     String wwwPass = "admin";
     bool allowBelow6AmpCharging = false; // Default false = Strict J1772

@@ -27,6 +27,7 @@ void loadConfig(AppConfig &config) {
     config.mqttEnabled = prefs.getBool("m_en", false);
     config.mqttHost = prefs.getString("m_host", "");
     config.mqttPort = prefs.getUShort("m_port", 1883);
+    config.mqttUseTls = prefs.getBool("m_tls", false);
     config.mqttUser = prefs.getString("m_user", "");
     config.mqttPass = prefs.getString("m_pass", "");
     config.wwwUser  = prefs.getString("w_user", "admin");
@@ -67,6 +68,7 @@ void saveConfig(const AppConfig &config) {
     prefs.putString("w_ip", config.staticIp); prefs.putString("w_gw", config.staticGw); prefs.putString("w_sn", config.staticSn);
     prefs.putBool("m_en", config.mqttEnabled);
     prefs.putString("m_host", config.mqttHost); prefs.putUShort("m_port", config.mqttPort);
+    prefs.putBool("m_tls", config.mqttUseTls);
     prefs.putString("m_user", config.mqttUser); prefs.putString("m_pass", config.mqttPass);
     prefs.putString("w_user", config.wwwUser); prefs.putString("w_pwd",  config.wwwPass);
     prefs.putBool("e_allow_low", config.allowBelow6AmpCharging); prefs.putBool("e_pause_im", config.pauseImmediate);

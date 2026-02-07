@@ -280,6 +280,8 @@ void WebController::handleStatus() {
     json += "\"paused\":" + String(evse.isPaused() ? "true" : "false") + ",";
     json += "\"conn\":" + String(evse.isVehicleConnected() ? "true" : "false") + ",";
     json += "\"lock\":" + String(evse.isSafetyLockoutActive() ? "true" : "false");
+    json += ",\"heap\":" + String(ESP.getFreeHeap());
+    json += ",\"psram\":" + String(ESP.getFreePsram());
     json += "}";
     webServer.send(200, "application/json", json);
 }
@@ -457,6 +459,9 @@ void WebController::handleConfigMqtt() {
     h += "<label>Enable MQTT<select name='mqen' id='mqen' onchange='toggleMqtt()'><option value='0' "+String(!config.mqttEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttEnabled?"selected":"")+">Enabled</option></select></label>";
     h += "<div id='mqfields'>";
     h += "<label>Host<input name='mqhost' value='"+config.mqttHost+"'></label><label>Port<input name='mqport' type='number' value='"+String(config.mqttPort)+"'></label>";
+    h += "<label>Use TLS<select name='mqtls'><option value='0' "+String(!config.mqttUseTls?"selected":"")+">No (Plain)</option><option value='1' "+String(config.mqttUseTls?"selected":"")+">Yes (TLS)</option></select></label>";
+    h += "<label>Use WebSockets<select name='mqws'><option value='0' "+String(!config.mqttUseWs?"selected":"")+">No (TCP)</option><option value='1' "+String(config.mqttUseWs?"selected":"")+">Yes (WS/WSS)</option></select></label>";
+    h += "<label>WS URI (e.g. /mqtt)<input name='mqurl' value='"+config.mqttWsUri+"'></label>";
     h += "<label>User<input name='mquser' value='"+config.mqttUser+"'></label><label>Pass<input name='mqpass' type='password' value='"+config.mqttPass+"'></label>";
     h += "<label>Safety Failsafe<select name='mqsafe'><option value='0' "+String(!config.mqttFailsafeEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttFailsafeEnabled?"selected":"")+">Stop Charge on Loss</option></select></label>";
     h += "<label>Failsafe Timeout (sec)<input name='mqsafet' type='number' value='"+String(config.mqttFailsafeTimeout)+"'></label>";
@@ -648,6 +653,9 @@ void WebController::handleSaveConfig() {
         config.mqttEnabled = (webServer.arg("mqen") == "1");
         config.mqttHost = webServer.arg("mqhost"); 
         config.mqttPort = webServer.arg("mqport").toInt();
+        config.mqttUseTls = (webServer.arg("mqtls") == "1");
+        config.mqttUseWs = (webServer.arg("mqws") == "1");
+        config.mqttWsUri = webServer.arg("mqurl");
         config.mqttUser = webServer.arg("mquser"); 
         config.mqttPass = webServer.arg("mqpass");
         config.mqttFailsafeEnabled = (webServer.arg("mqsafe") == "1");

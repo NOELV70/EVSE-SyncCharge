@@ -15,12 +15,23 @@
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 
+/* =========================
+ * Timing Constants
+ * ========================= */
+constexpr unsigned long BOOT_RECOVERY_DELAY_MS    = 5000UL;  // Wait for pilot to stabilize after boot
+constexpr unsigned long THROTTLE_RAMP_INTERVAL_MS = 5000UL;  // Ramp down 1A every 5 seconds
+
 extern Rcm rcm;
 
 EvseCharge::EvseCharge(Pilot &pilotRef) {
     pilot = &pilotRef;
     relay = new Relay();
     _autoRestartPhaseSwitch = false;
+}
+
+EvseCharge::~EvseCharge() {
+    delete relay;
+    relay = nullptr;
 }
 
 void EvseCharge::preinit_hard() {
@@ -105,8 +116,8 @@ void EvseCharge::loop() {
     // If the device reboots and detects a car immediately, we assume we should resume charging.
     static bool bootRecoveryChecked = false;
     if (!bootRecoveryChecked && !errorLockout && !rcmTripped && !userPaused) {
-        // Give the pilot some time to stabilize readings (e.g. 5 seconds)
-        if (millis() > 5000) {
+        // Give the pilot some time to stabilize readings
+        if (millis() > BOOT_RECOVERY_DELAY_MS) {
             if (state == STATE_READY && isVehicleConnected()) {
                 logger.info("[EVSE] Boot Recovery: Vehicle detected. Auto-starting charge...");
                 startCharging();
@@ -121,11 +132,11 @@ void EvseCharge::loop() {
         unsigned long now = millis();
         if ((now - lastThrottleAliveTime) > (throttleAliveTimeout * 1000UL)) {
             // Data is stale. Ramp down to minimum current.
-            if (currentLimit > 6.0f) {
-                // Ramp down by 1A every 5 seconds
-                if (now - lastThrottleRampTime >= 5000UL) {
+            if (currentLimit > MIN_CURRENT) {
+                // Ramp down by 1A every interval
+                if (now - lastThrottleRampTime >= THROTTLE_RAMP_INTERVAL_MS) {
                     float next = currentLimit - 1.0f;
-                    if (next < 6.0f) next = 6.0f;
+                    if (next < MIN_CURRENT) next = MIN_CURRENT;
                     logger.warnf("[EVSE] ThrottleAlive: Stale data. Ramping %.1fA -> %.1fA", currentLimit, next);
                     setCurrentLimit(next);
                     lastThrottleRampTime = now;

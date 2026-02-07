@@ -1,18 +1,19 @@
-# EVSE-SyncCharge
+# EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
+ 
+Your Solar Power, Your Car, Zero Waste, iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to.
 
-What ? A real-time link between your EV and your 'home'-grid, delivering millisecond-level signaling, OTA updates, and open IoT and/or OCCP integration.
+EVSE-SyncCharge - What ? A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT and/or OCCP integration.
 
-Most DIY EVSE controllers behave like smart relays — they turn power on and off, EVSE-SyncCharge is a charge controller.
+Most DIY EVSE controllers behave like smart relays — they turn power on and off, EVSE-SyncCharge is a 'smart' charge controller.
 It implements proper pilot-signal behavior, respects the electrical and safety constraints of the vehicle’s onboard charger, and is designed to integrate into real-world energy-management systems.
 
 _If you’re building more than a power switch, this is the controller you want._
 
 <img width="1209" height="716" alt="image" src="https://github.com/user-attachments/assets/f9b5a872-c2fd-47f3-84fe-b304f740b171" />
 
-EVSE-SyncCharge is a firmware build to transform the ESP32 into a fully compliant, Vehicle Supply Equipment (EVSE) controller. 
+EVSE-SyncCharge is a firmware (and DIY hardware) build  a fully compliant, Vehicle Supply Equipment (EVSE) controller. 
 
-This Firmare implements the full SAE J1772 / IEC 61851 protocol stack, providing a robust foundation for dynamic load balancing, 
-solar energy matching.
+This Firmare implements the full SAE J1772 / IEC 61851 protocol stack, providing a robust foundation for dynamic load balancing, solar energy matching.
 
 Safety-First Architecture
 Built on a "Safety" design philosophy, the system prioritizes physical protection of the vehicle and infrastructure above all else.
@@ -30,6 +31,8 @@ Multi-Layer System Supervision:
 
 * Synchronized Soft-Stop: Prevents contactor arcing by electronically terminating the charge via the Pilot signal, milliseconds before opening the mechanical relay.
 
+* OTA Interlock: During firmware updates, the system executes an immediate safety break, bypassing standard debounce timers to ensure the high-voltage contactor is physically open before the MCU begins flashing.
+
 * Anti-Chatter Hysteresis: Intelligent state-machine logic filters signal noise to prevent rapid relay cycling, extending hardware lifespan.
 
 Universal Connectivity
@@ -45,6 +48,16 @@ Universal Connectivity
 * Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
 *   **Customizable Web Interface:** Features a responsive dashboard with **Different selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green), allowing users to personalize the charger's appearance via the Admin panel.
 
+*   **Dynamic LED Feedback:** Supports WS2812B addressable LEDs for intuitive status indication (Charging, Error, RFID Auth, Solar Wait) with customizable colors and effects.
+
+### Enterprise Connectivity & Reliability (v5.7)
+We have significantly hardened the MQTT and Network stack to ensure the charger remains online and responsive in real-world conditions.
+
+*   **TLS Security (MQTTS):** Added support for MQTT over TLS (MQTTS). You can now toggle "Use TLS" in the MQTT configuration page to encrypt control traffic between the charger and your broker.
+*   **Smart Availability & LWT:** The charger now utilizes MQTT "Last Will and Testament" (LWT). If the device loses power or WiFi, the broker automatically marks the device as `offline`. All Home Assistant entities will instantly grey out, preventing "ghost" commands.
+*   **Exponential Backoff Strategy:** Instead of hammering the broker with retries during an outage, the system uses an intelligent backoff algorithm ($1s \to 2s \to 4s \dots$ up to 5 mins), reducing network congestion.
+*   **PSRAM Memory Optimization:** Generating large Home Assistant discovery payloads is now offloaded to the ESP32's external PSRAM (SPIRAM). This preserves critical internal SRAM for the WiFi and TLS stacks, significantly reducing the risk of crashes during heavy network activity.
+
 Intelligent Energy Management
 Turn your EV into a grid-stabilizing asset.
 
@@ -53,7 +66,7 @@ The system supports runtime switching between single-phase and three-phase charg
 *   **Auto-Switching Logic:** (When configured in Auto Mode) Automatically engages L2+L3 when requested current exceeds 23A, and drops back to 1-Phase if current falls below 7A.
 *   **Safety Interlock:** Enforces a mandatory **15-second safety delay** during phase transitions to allow the vehicle's onboard charger capacitors to discharge, preventing hardware damage.
 
-Solar Excess Charging: Supports dynamic amperage adjustment in real-time. 
+Solar Excess Charging: Supports dynamic power adjustment in real-time. 
 The unique "Solar Throttle" mode allows the system to modulate charging power to match solar production curve perfectly.
 
 Dynamic Load Balancing: Real-time API endpoints allow external energy meters to throttle the EVSE instantly when household loads (like heat pumps or ovens) peak.
@@ -80,6 +93,11 @@ Real Charge Control. Not Just a Smart Relay.
 _**EVSE-SyncCharge**_ : 
 * is a EV charge controller that understands the power of the pilot signal,
 * enforces onboard-charger safety limits,
-* and integrates seamlessly with professional energy-management systems.
+* and integrates seamlessly with home and commercial energy-management systems.
 
-Built for/by engineers. Trusted by infrastructure.
+
+Built by an engineer, Trusted where it matters..
+
+**☕ “Fuel my circuits and my code—buy me a coffee and keep this kernel from crashing!”** 
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/C0C21TRVZ5)

@@ -14,6 +14,7 @@
 #include "EvseCharge.h"
 #include "Pilot.h"
 #include "EvseLogger.h"
+#include "os_esp_malloc.h"
 
 OCPPHandler::OCPPHandler(EvseCharge& evseCharge, Pilot& pilotRef) 
     : evse(evseCharge), pilot(pilotRef) 
@@ -231,9 +232,13 @@ void OCPPHandler::sendCall(const char* action, JsonObject& payload) {
     doc.add(action);
     doc.add(payload);
     
-    String output;
-    serializeJson(doc, output);
-    webSocket.sendTXT(output);
+    size_t len = measureJson(doc);
+    char* buf = (char*)os_esp_malloc_large(len + 1);
+    if (buf) {
+        serializeJson(doc, buf, len + 1);
+        webSocket.sendTXT(buf);
+        os_esp_free(buf);
+    }
     logger.debugf("[OCPP] Tx #%s: %s", msgId.c_str(), action);
 }
 

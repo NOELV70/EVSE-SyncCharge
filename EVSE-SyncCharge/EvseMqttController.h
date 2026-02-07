@@ -103,6 +103,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include "EvseCharge.h"
 #include "Pilot.h"
@@ -113,23 +114,37 @@ public:
     EvseMqttController(EvseCharge& evseCharge, Pilot& pilotRef);
     void begin(const char* mqttServer, int mqttPort,
                const char* mqttUser, const char* mqttPass,
-               const String& deviceIdString);
+               const String& deviceIdString, bool useTls = false,
+               bool useWs = false, const char* wsUrl = nullptr);
     void loop();
     void enableCurrentTest(bool enable);
     void setFailsafeConfig(bool enabled, unsigned long timeout);
     void onFailsafeCommand(std::function<void(bool, unsigned long)> callback);
     void onRcmConfigChanged(std::function<void(bool)> callback);
     bool connected();
+    void incrementWifiConnectCount() { wifiConnectCount++; }
+    void incrementMqttConnectCount() { mqttConnectCount++; }
 
 private:
     void mqttCallback(char* topic, byte* payload, unsigned int length);
     void publishHADiscovery();
+    void publishDiagnosticDiscovery();
+    void publishDiagnostics();
+    String getRestartReason();
+    int getSignalQuality(int rssi);
     
     String serverHost; // Store host to check if configured
     EvseCharge* evse;
     Pilot* pilot;
     WiFiClient mqttWiFiClient;
+    WiFiClientSecure mqttWiFiClientSecure;
     PubSubClient mqttClient;
+    bool _useTls = false;
+
+    // Exponential backoff for reconnect (resets on success)
+    unsigned long _reconnectDelay = 1000;       // Start at 1 second
+    static const unsigned long RECONNECT_MIN = 1000;   // 1 second
+    static const unsigned long RECONNECT_MAX = 300000; // 5 minutes
 
     // Failsafe local cache
     bool _fsEnabled = false;
@@ -140,6 +155,9 @@ private:
     String deviceId;
     String mqttUser;
     String mqttPass;
+
+    uint32_t wifiConnectCount = 0;
+    uint32_t mqttConnectCount = 0;
 
     // --- Topics ---
     String topicCommand;
@@ -164,6 +182,7 @@ private:
     String topicRcmFault;       // Fault status (1=Tripped, 0=OK)
     String topicPhaseMode;      // "1-Phase", "3-Phase", "Auto"
     String topicPower;          // Real-time Power (kW)
+    String topicAvailability;   // Device availability (online/offline)
 
     // --- Last values for change detection ---
     STATE_T lastState = STATE_COUNT;
@@ -177,6 +196,14 @@ private:
     bool lastRcmEnabled = true;
     int lastPhaseMode = -1;
     float lastPower = -1.0f;
+    
+    // --- Delayed diagnostics publish (allows HA to process discovery first) ---
+    bool _pendingDiagnosticsPublish = false;
+    unsigned long _diagnosticsPublishTime = 0;
+    
+    // --- Timing for reconnect and diagnostics (moved from static locals) ---
+    unsigned long _lastReconnectAttempt = 0;
+    unsigned long _lastDiagTime = 0;
 };
 
 #endif

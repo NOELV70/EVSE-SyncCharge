@@ -49,6 +49,8 @@ Universal Connectivity
 
 * Native MQTT & Home Assistant: Features "Zero-Config" Auto-Discovery for Home Assistant.
   Instantly exposes sensors for Current, Voltage, Pilot Duty, and Vehicle State without writing a single line of YAML.
+<img width="858" height="779" alt="image" src="https://github.com/user-attachments/assets/cfbec73f-aa70-41ca-9319-36fec41cc1e8" />
+
 
 * Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
 *   **Customizable Web Interface:** Features a responsive dashboard with **Different selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green), allowing users to personalize the charger's appearance via the Admin panel.

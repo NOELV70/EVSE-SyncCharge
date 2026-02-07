@@ -49,9 +49,9 @@ Universal Connectivity
 
 * Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
 *   **Customizable Web Interface:** Features a responsive dashboard with **Different selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green), allowing users to personalize the charger's appearance via the Admin panel.
-  <img width="1667" height="815" alt="image" src="https://github.com/user-attachments/assets/05c34da2-f82c-412d-ae65-d03ff45ca8bd" />
+  ![EVSE-themes](https://github.com/user-attachments/assets/8a0e455d-97a4-40a5-8e21-058a689cedca)
 
-
+  
 *   **Dynamic LED Feedback:** Supports WS2812B addressable LEDs for intuitive status indication (Charging, Error, RFID Auth, Solar Wait) with customizable colors and effects.
 
 ### Enterprise Connectivity & Reliability (v5.7)

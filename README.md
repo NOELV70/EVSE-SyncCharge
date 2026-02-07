@@ -1,6 +1,9 @@
 # EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
  
-Your Solar Power, Your Car, Zero Waste, iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to.
+Your Solar Power, 
+Your Car, 
+Zero Waste, 
+iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to.
 
 ![EVSE-SYNCCHARGE](https://github.com/user-attachments/assets/1a2f5a60-b5d0-483b-8ea7-601f87595051)
 

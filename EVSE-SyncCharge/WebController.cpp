@@ -29,7 +29,16 @@ WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController&
 extern volatile bool g_otaUpdating;
 
 String WebController::getDashStyle() { 
-    const char* t = (_theme == 1) ? themeBlue : ((_theme == 2) ? themeDarkBlue : ((_theme == 3) ? themeGreen : ((_theme == 4) ? themeDarkGreen : themeYellow)));
+    const char* t;
+    switch(_theme) {
+        case 1: t = themeBlue; break;
+        case 2: t = themeDarkBlue; break;
+        case 3: t = themeGreen; break;
+        case 4: t = themeDarkGreen; break;
+        case 5: t = themeRed; break;
+        case 6: t = themeDarkRed; break;
+        default: t = themeYellow; break;
+    }
     return String(t) + String(dashStyle); 
 }
 String WebController::getLogoSvg() { return String(logoSvg); }
@@ -460,8 +469,8 @@ void WebController::handleConfigMqtt() {
     h += "<div id='mqfields'>";
     h += "<label>Host<input name='mqhost' value='"+config.mqttHost+"'></label><label>Port<input name='mqport' type='number' value='"+String(config.mqttPort)+"'></label>";
     h += "<label>Use TLS<select name='mqtls'><option value='0' "+String(!config.mqttUseTls?"selected":"")+">No (Plain)</option><option value='1' "+String(config.mqttUseTls?"selected":"")+">Yes (TLS)</option></select></label>";
-    h += "<label>Use WebSockets<select name='mqws'><option value='0' "+String(!config.mqttUseWs?"selected":"")+">No (TCP)</option><option value='1' "+String(config.mqttUseWs?"selected":"")+">Yes (WS/WSS)</option></select></label>";
-    h += "<label>WS URI (e.g. /mqtt)<input name='mqurl' value='"+config.mqttWsUri+"'></label>";
+    // h += "<label>Use WebSockets<select name='mqws'><option value='0' "+String(!config.mqttUseWs?"selected":"")+">No (TCP)</option><option value='1' "+String(config.mqttUseWs?"selected":"")+">Yes (WS/WSS)</option></select></label>";
+    // h += "<label>WS URI (e.g. /mqtt)<input name='mqurl' value='"+config.mqttWsUri+"'></label>";
     h += "<label>User<input name='mquser' value='"+config.mqttUser+"'></label><label>Pass<input name='mqpass' type='password' value='"+config.mqttPass+"'></label>";
     h += "<label>Safety Failsafe<select name='mqsafe'><option value='0' "+String(!config.mqttFailsafeEnabled?"selected":"")+">Disabled</option><option value='1' "+String(config.mqttFailsafeEnabled?"selected":"")+">Stop Charge on Loss</option></select></label>";
     h += "<label>Failsafe Timeout (sec)<input name='mqsafet' type='number' value='"+String(config.mqttFailsafeTimeout)+"'></label>";
@@ -599,7 +608,7 @@ void WebController::handleConfigAuth() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>Security Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<label>User<input name='wuser' value='"+config.wwwUser+"'></label><label>Pass<input name='wpass' type='password' value='"+config.wwwPass+"'></label>";
-    h += "<label>UI Theme<select name='theme'><option value='0' "+String(_theme==0?"selected":"")+">Yellow / Dark</option><option value='1' "+String(_theme==1?"selected":"")+">Blue / Light</option><option value='2' "+String(_theme==2?"selected":"")+">Blue / Dark</option><option value='3' "+String(_theme==3?"selected":"")+">Green / Light</option><option value='4' "+String(_theme==4?"selected":"")+">Green / Dark</option></select></label>";
+    h += "<label>UI Theme<select name='theme'><option value='0' "+String(_theme==0?"selected":"")+">Yellow / Dark</option><option value='1' "+String(_theme==1?"selected":"")+">Blue / Light</option><option value='2' "+String(_theme==2?"selected":"")+">Blue / Dark</option><option value='3' "+String(_theme==3?"selected":"")+">Green / Light</option><option value='4' "+String(_theme==4?"selected":"")+">Green / Dark</option><option value='5' "+String(_theme==5?"selected":"")+">Red-Orange / Light</option><option value='6' "+String(_theme==6?"selected":"")+">Red-Orange / Dark</option></select></label>";
     h += "<button class='btn' type='submit'>SAVE CREDENTIALS</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><br>";
     h += "<button class='btn btn-red' onclick=\"cfm('Reboot System?', function(){window.location='/reboot'})\">REBOOT DEVICE</button>";
     h += "<button class='btn btn-red' style='margin-top:20px' onclick=\"document.getElementById('dz').style.display='block';this.style.display='none'\">! DANGER ZONE !</button>";
@@ -654,8 +663,8 @@ void WebController::handleSaveConfig() {
         config.mqttHost = webServer.arg("mqhost"); 
         config.mqttPort = webServer.arg("mqport").toInt();
         config.mqttUseTls = (webServer.arg("mqtls") == "1");
-        config.mqttUseWs = (webServer.arg("mqws") == "1");
-        config.mqttWsUri = webServer.arg("mqurl");
+        // config.mqttUseWs = (webServer.arg("mqws") == "1");
+        // config.mqttWsUri = webServer.arg("mqurl");
         config.mqttUser = webServer.arg("mquser"); 
         config.mqttPass = webServer.arg("mqpass");
         config.mqttFailsafeEnabled = (webServer.arg("mqsafe") == "1");

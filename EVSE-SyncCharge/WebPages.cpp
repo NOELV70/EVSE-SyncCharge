@@ -32,6 +32,14 @@ const char* themeDarkGreen = R"rawliteral(
 <style>:root{--bg:#0d1117;--fg:#e6fffa;--c-bg:#161b22;--c-bd:#00e676;--acc:#00e676;--acc-fg:#000;--dim:#8b949e;--stat-bg:#0d1117;--stat-fg:#00e676;--diag-bg:#0d1117;--diag-fg:#69f0ae;--diag-bd:#00c853;--in-bg:#0d1117;--in-bd:#30363d;--btn-red:#ff5252;}</style>
 )rawliteral";
 
+const char* themeRed = R"rawliteral(
+<style>:root{--bg:#f0f2f5;--fg:#333;--c-bg:#ffffff;--c-bd:#e64a19;--acc:#e64a19;--acc-fg:#fff;--dim:#666;--stat-bg:#fbe9e7;--stat-fg:#bf360c;--diag-bg:#fff3e0;--diag-fg:#e65100;--diag-bd:#ffb74d;--in-bg:#fff;--in-bd:#ccc;--btn-red:#b71c1c;}</style>
+)rawliteral";
+
+const char* themeDarkRed = R"rawliteral(
+<style>:root{--bg:#0d1117;--fg:#fbe9e7;--c-bg:#161b22;--c-bd:#ff7043;--acc:#ff7043;--acc-fg:#000;--dim:#8b949e;--stat-bg:#0d1117;--stat-fg:#ff7043;--diag-bg:#0d1117;--diag-fg:#ffcc80;--diag-bd:#ffa726;--in-bg:#0d1117;--in-bd:#30363d;--btn-red:#d32f2f;}</style>
+)rawliteral";
+
 // --- COMMON LAYOUT (Uses Variables) ---
 const char* dashStyle = R"rawliteral(
 <style>

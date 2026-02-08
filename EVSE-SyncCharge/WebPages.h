@@ -17,6 +17,8 @@ extern const char* themeBlue;
 extern const char* themeDarkBlue;
 extern const char* themeGreen;
 extern const char* themeDarkGreen;
+extern const char* themeRed;
+extern const char* themeDarkRed;
 
 // Scripts & Assets
 extern const char* dynamicScript;

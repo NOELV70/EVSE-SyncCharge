@@ -1,6 +1,11 @@
 # EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
  
-Your Solar Power, Your Car, Zero Waste, iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to.
+Your Solar Power, 
+Your Car, 
+Zero Waste, 
+iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to.
+
+![EVSE-SYNCCHARGE](https://github.com/user-attachments/assets/1a2f5a60-b5d0-483b-8ea7-601f87595051)
 
 EVSE-SyncCharge - What ? A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT and/or OCCP integration.
 
@@ -44,10 +49,14 @@ Universal Connectivity
 
 * Native MQTT & Home Assistant: Features "Zero-Config" Auto-Discovery for Home Assistant.
   Instantly exposes sensors for Current, Voltage, Pilot Duty, and Vehicle State without writing a single line of YAML.
+<img width="858" height="779" alt="image" src="https://github.com/user-attachments/assets/cfbec73f-aa70-41ca-9319-36fec41cc1e8" />
+
 
 * Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
 *   **Customizable Web Interface:** Features a responsive dashboard with **Different selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green), allowing users to personalize the charger's appearance via the Admin panel.
+  ![EVSE-themes](https://github.com/user-attachments/assets/8a0e455d-97a4-40a5-8e21-058a689cedca)
 
+  
 *   **Dynamic LED Feedback:** Supports WS2812B addressable LEDs for intuitive status indication (Charging, Error, RFID Auth, Solar Wait) with customizable colors and effects.
 
 ### Enterprise Connectivity & Reliability (v5.7)
@@ -80,17 +89,11 @@ Technical Specifications
   Diagnostics	Real-time "Cyan-Diag" Web Console
   Settings saved to nvs.
     
-<img width="599" height="747" alt="image" src="https://github.com/user-attachments/assets/c54b1611-8b2c-4dae-ab47-75383c240171" />
-<img width="578" height="894" alt="image" src="https://github.com/user-attachments/assets/615cf967-1121-4093-954a-ca737cb721dd" />
-<img width="544" height="877" alt="image" src="https://github.com/user-attachments/assets/2cb59e41-261e-4c45-a2f2-ec754b5e7882" />
-<img width="522" height="730" alt="image" src="https://github.com/user-attachments/assets/e8977c46-8974-4426-9abe-26caa5f04311" />
-<img width="432" height="895" alt="image" src="https://github.com/user-attachments/assets/2c37baa7-36bf-4647-b4c2-8c43871fd1a0" />
-<img width="462" height="717" alt="image" src="https://github.com/user-attachments/assets/9486444c-4c0a-4d8c-b392-407ee8619fe5" />
 
 
-Real Charge Control. Not Just a Smart Relay.
 
 _**EVSE-SyncCharge**_ : 
+* Real Charge Control. Not Just a Smart Relay.
 * is a EV charge controller that understands the power of the pilot signal,
 * enforces onboard-charger safety limits,
 * and integrates seamlessly with home and commercial energy-management systems.

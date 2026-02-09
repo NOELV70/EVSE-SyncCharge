@@ -1,9 +1,9 @@
 # EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
  
-Your Solar Power, 
-Your Car, 
-Zero Waste, 
-iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to.
+Your Solar Power, <br>
+Your Car, <br>
+Zero Waste, <br> 
+iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to. <br>
 
 ![EVSE-SYNCCHARGE](https://github.com/user-attachments/assets/1a2f5a60-b5d0-483b-8ea7-601f87595051)
 
@@ -28,11 +28,11 @@ The system executes a pre-charge safety check before every session and instantly
 
 Multi-Layer System Supervision:
 
-* Hardware WDT: An second hardware supervisor resets the MCU in the event of a network stack deadlock.
+* Hardware WDT: A hardware Watchdog resets the MCU in the event of a network stack deadlock.
 
 * ThrottleAlive™ Protocol: A centralized safety heartbeat that automatically throttles charging to a safe minimum, if external control signals (MQTT/OCPP) are lost, preventing grid overloads during network outages.
 
-* Boot Loop Protection: A persistent "Strike System" using RTC memory tracks system stability across reboots. If the device enters a rapid crash loop (>5 crashes without stability), it engages a **Safety Lockout** to prevent dangerous relay chattering. The system intelligently distinguishes between a **Power Outage** (Safe Auto-Recovery) and a **System Crash** (Lockout).
+* Boot Loop Protection: A persistent "Strike System" using NV-memory tracks system stability across reboots. If the device enters a rapid crash loop (>5 crashes without stability), it engages a **Safety Lockout** to prevent dangerous relay chattering. The system intelligently distinguishes between a **Power Outage** (Safe Auto-Recovery) and a **System Crash** (Lockout).
 
 * Synchronized Soft-Stop: Prevents contactor arcing by electronically terminating the charge via the Pilot signal, milliseconds before opening the mechanical relay.
 
@@ -43,7 +43,7 @@ Multi-Layer System Supervision:
 Universal Connectivity
 * Designed for the modern energy ecosystem, EVSE-SyncCharge speaks the languages of both Smart Homes and Commercial Grids.
 
-* OCPP 1.6J Compliance: Full WebSocket/WSS implementation allows connection to commercial backends (SteVe, Monta, etc.) for remote billing, authorization, and fleet management.
+* OCPP 1.6J Compliance: Full WebSocket/WSS implementation allows connection to commercial backends (SteVe, Monta, etc.). 
 
 * **Integrated RFID Access Control:** A complete, user-configurable RFID management system. Enable or disable RFID authentication, add up to 10 authorized tags with custom names (e.g., "Noel's Key"), and use them to start/stop charging sessions. Features a web-based "Learn Mode" for easy tag registration and provides instant visual feedback with LED flashes for accepted or denied scans. All tags are persistently stored in NVS.
 
@@ -60,7 +60,7 @@ Universal Connectivity
   
 *   **Dynamic LED Feedback:** Supports WS2812B addressable LEDs for intuitive status indication (Charging, Error, RFID Auth, Solar Wait) with customizable colors and effects.
 
-### Enterprise Connectivity & Reliability (v5.7)
+### Enterprise Connectivity & Reliability 
 We have significantly hardened the MQTT and Network stack to ensure the charger remains online and responsive in real-world conditions.
 
 *   **TLS Security (MQTTS):** Added support for MQTT over TLS (MQTTS). You can now toggle "Use TLS" in the MQTT configuration page to encrypt control traffic between the charger and your broker.
@@ -81,26 +81,26 @@ The unique "Solar Throttle" mode allows the system to modulate charging power to
 
 Dynamic Load Balancing: Real-time API endpoints allow external energy meters to throttle the EVSE instantly when household loads (like heat pumps or ovens) peak.
 
-Technical Specifications
-  Core Architecture	Dual-Core ESP32 (FreeRTOS)
-  Protocol	SAE J1772 / IEC 61851 (States A-F)
-  PWM Precision	1kHz @ 12-bit Resolution
-  Security	WPA2/WPA3 WiFi, TLS/SSL for OCPP
-  Updates	OTA (Over-The-Air) with Safety Interlock
-  Diagnostics	Real-time "Cyan-Diag" Web Console
-  Settings saved to nvs.
+Technical Specifications<br>
+  Core Architecture	Dual-Core ESP32 (FreeRTOS) <br>
+  Protocol	SAE J1772 / IEC 61851 (States A-F)<br>
+  PWM Precision	1kHz @ 12-bit Resolution<br>
+  Security	WPA2/WPA3 WiFi, TLS/SSL for OCPP<br>
+  Updates	OTA (Over-The-Air) with Safety Interlock<br>
+  Diagnostics	Real-time "Cyan-Diag" Web Console<br>
+  Settings saved to nvs.<br>
     
 
 
 
 _**EVSE-SyncCharge**_ : 
-* Real Charge Control. Not Just a Smart Relay.
-* is a EV charge controller that understands the power of the pilot signal,
-* enforces onboard-charger safety limits,
-* and integrates seamlessly with home and commercial energy-management systems.
+* Real Charge Control. Not Just a Smart Relay.<br>
+* is a EV charge controller that understands the power of the pilot signal,<br>
+* enforces onboard-charger safety limits,<br>
+* and integrates seamlessly with home and commercial energy-management systems.<br>
 
 
-Built by an engineer, Trusted where it matters..
+Built by an engineer, Trusted where it matters..<br>
 
 **☕ “Fuel my circuits and my code—buy me a coffee and keep this kernel from crashing!”** 
 

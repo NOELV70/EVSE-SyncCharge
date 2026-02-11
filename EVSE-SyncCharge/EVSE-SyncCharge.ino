@@ -68,6 +68,7 @@
 #include "EvseLogger.h"
 #include "Pilot.h"
 #include "EvseCharge.h"
+#include "Proximity.h"
 #include "Rcm.h"
 #include "EvseMqttController.h"
 #include "EvseConfig.h"
@@ -88,17 +89,18 @@ constexpr unsigned long EVSE_LOOP_FAST_MS = 3UL;   // Fast polling when vehicle 
 constexpr unsigned long EVSE_LOOP_IDLE_MS = 50UL;  // Slow polling when idle (power saving)
 
 // Singletons
+AppConfig config;
 Pilot pilot;
-Rcm rcm;
 EvseCharge evse(pilot);
+Proximity proximitySensor(evse, config);
+Rcm rcm;
 EvseMqttController mqttController(evse, pilot);
 OCPPHandler ocppHandler(evse, pilot);
-TaskHandle_t evseTaskHandle = NULL;
-EvseTelnet telnetServer;
-AppConfig config;
 EvseRfid rfid;
 WebController webController(evse, pilot, mqttController, ocppHandler, config, rfid);
+EvseTelnet telnetServer;
 String deviceId;
+TaskHandle_t evseTaskHandle = NULL;
 bool isFallbackApMode = false;
 volatile bool g_otaUpdating = false;
 unsigned long g_rfidFeedbackUntil = 0;
@@ -151,6 +153,9 @@ void evseLoopTask(void* parameter) {
     // Retrieve the OTA flag pointer passed during task creation
     volatile bool* pOtaUpdating = (volatile bool*)parameter;
 
+    // Log which core this task is running on
+    logger.infof("[EVSE_TASK] Started on Core %d", xPortGetCoreID());
+
     // SAFETY: Register this task with the Watchdog Timer.
     // Without this, esp_task_wdt_reset() inside this loop does nothing.
     esp_task_wdt_add(NULL);
@@ -168,6 +173,9 @@ void evseLoopTask(void* parameter) {
         }
 
         evse.loop();
+
+        proximitySensor.loop();
+
         // Dynamic polling: Fast when connected for safety/PWM response, Slow when idle.
         if (evse.getVehicleState() != VEHICLE_NOT_CONNECTED) {
             vTaskDelay(pdMS_TO_TICKS(EVSE_LOOP_FAST_MS));
@@ -239,7 +247,8 @@ void setup() {
 #endif
 
     ChargingSettings cs;
-    cs.maxCurrent = config.maxCurrent; 
+    // The absolute max current is the minimum of the user setting and the fixed hardware limit.
+    cs.maxCurrent = min(config.maxCurrent, config.hardwareMaxCurrent); 
     cs.disableAtLowLimit = !config.allowBelow6AmpCharging; // Invert logic for internal struct
     cs.softStart = config.softStart;
     cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
@@ -311,6 +320,13 @@ void setup() {
     // The ADC DMA interrupts must not fire while WiFi is initializing the RF/NVS.
     logger.info("[MAIN] Initializing EVSE Hardware...");
     evse.setup(cs);
+
+    logger.info("[MAIN] Initializing Proximity Sensor...");
+    if (!proximitySensor.begin()) {
+        logger.error("[MAIN] Failed to initialize Proximity sensor! Cable limit sensing disabled.");
+        config.sensePpEnabled = false; // Disable if hardware init fails
+    }
+
     evse.setRcmEnabled(config.rcmEnabled);
 
     // RCM Initialization & Self-Test
@@ -338,6 +354,9 @@ void setup() {
 
     // RFID Initialization
     rfid.begin(5, 17, 4); // SS=5, RST=17, Buzzer=4
+    // Apply settings from centralized AppConfig
+    rfid.setEnabled(config.rfidEnabled);
+    rfid.setBuzzerEnabled(config.rfidBuzzerEnabled);
     rfid.onCardScanned([](String uid, bool authorized){
         if(authorized) {
             logger.infof("[RFID] Auth Success: %s. Toggling Charge.", uid.c_str());
@@ -355,10 +374,12 @@ void setup() {
     MDNS.begin(deviceId.c_str());
     ArduinoOTA.begin();
 
-    // Create the Safety Task on Core 1 (App Core) with higher priority (2) than loop (1)
-    // This ensures charging logic takes precedence over Network/UI.
-    xTaskCreatePinnedToCore(evseLoopTask, "EVSE_Logic", 8192, (void*)&g_otaUpdating, 2, &evseTaskHandle, 1);
+    // Create the Safety Task on Core 0 (PRO Core) with higher priority (2) than loop (1)
+    // Main loop() runs on Core 1 (APP Core) for WiFi/Web. EVSE logic isolated on Core 0.
+    xTaskCreatePinnedToCore(evseLoopTask, "EVSE_Logic", 8192, (void*)&g_otaUpdating, 2, &evseTaskHandle, 0);
 
+    // Log which core the main loop() runs on
+    logger.infof("[MAIN] setup() completed on Core %d", xPortGetCoreID());
 }
 
 void loop() {

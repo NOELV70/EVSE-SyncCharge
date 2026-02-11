@@ -1,9 +1,6 @@
 # EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
  
-Your Solar Power, <br>
-Your Car, <br>
-Zero Waste, <br> 
-iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to. <br>
+Your Solar Power, Your Car, Zero Waste,<br>iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to. <br>
 
 ![EVSE-SYNCCHARGE](https://github.com/user-attachments/assets/1a2f5a60-b5d0-483b-8ea7-601f87595051)
 
@@ -42,10 +39,10 @@ Multi-Layer System Supervision:
 
 Universal Connectivity
 * Designed for the modern energy ecosystem, EVSE-SyncCharge speaks the languages of both Smart Homes and Commercial Grids.
-
+* **Proximity Pilot (PP) Sensing:** Automatically detects the cable's physical current limit (e.g., 16A, 32A) and enforces it for safety. This feature is fully configurable via the web UI.
 * OCPP 1.6J Compliance: Full WebSocket/WSS implementation allows connection to commercial backends (SteVe, Monta, etc.). 
 
-* **Integrated RFID Access Control:** A complete, user-configurable RFID management system. Enable or disable RFID authentication, add up to 10 authorized tags with custom names (e.g., "Noel's Key"), and use them to start/stop charging sessions. Features a web-based "Learn Mode" for easy tag registration and provides instant visual feedback with LED flashes for accepted or denied scans. All tags are persistently stored in NVS.
+* **Integrated RFID Access Control:** A complete, user-configurable RFID management system. Enable/disable the reader and buzzer, add up to 10 authorized tags with custom names (e.g., "Noel's Key"), and use them to start/stop charging sessions. Features a web-based "Learn Mode" for easy tag registration and provides instant visual feedback with LED flashes for accepted or denied scans. All tags are persistently stored in NVS.
 
 * Native MQTT & Home Assistant: Features "Zero-Config" Auto-Discovery for Home Assistant.
   Instantly exposes sensors for Current, Voltage, Pilot Duty, and Vehicle State without writing a single line of YAML.

@@ -39,13 +39,15 @@ struct AppConfig {
     bool pauseImmediate = true;
     unsigned long lowLimitResumeDelayMs = 300000UL;
     float maxCurrent = 32.0f;
+    float hardwareMaxCurrent = 32.0f;
+    bool sensePpEnabled = true;
     bool mqttFailsafeEnabled = false;
     unsigned long mqttFailsafeTimeout = 600; // Seconds
     bool rcmEnabled = false;
     unsigned long solarStopTimeout = 0; // 0 = Disabled
     PhaseMode phaseMode = PHASE_MODE_1P;
-    //bool rfidEnabled = false;
-    //bool rfidBuzzerEnabled = true;
+    bool rfidEnabled = false;
+    bool rfidBuzzerEnabled = false;
     // OCPP Configuration
     bool ocppEnabled = false;
     String ocppHost = "";

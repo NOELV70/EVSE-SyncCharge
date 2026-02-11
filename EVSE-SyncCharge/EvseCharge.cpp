@@ -21,6 +21,12 @@
 constexpr unsigned long BOOT_RECOVERY_DELAY_MS    = 5000UL;  // Wait for pilot to stabilize after boot
 constexpr unsigned long THROTTLE_RAMP_INTERVAL_MS = 5000UL;  // Ramp down 1A every 5 seconds
 
+/* =========================
+ * Auto Phase Switch Thresholds
+ * ========================= */
+constexpr float PHASE_SWITCH_UP_THRESHOLD   = 23.0f;  // Switch 1P->3P when amps exceed this
+constexpr float PHASE_SWITCH_DOWN_THRESHOLD = 7.0f;   // Switch 3P->1P when amps drop below this
+
 extern Rcm rcm;
 
 EvseCharge::EvseCharge(Pilot &pilotRef) {
@@ -259,6 +265,8 @@ void EvseCharge::stopCharging() {
     // SAFETY: J1772 requires PWM to +12V FIRST, then open relay
     // This signals vehicle to stop drawing current before power is cut
     // Prevents arcing and contactor wear from opening under load
+    // NOTE: These calls are intentionally BEFORE the state check below.
+    // Even if we're not in STATE_CHARGING, we ensure a safe electrical state.
     pilot->standby();
     relay->open();
     
@@ -348,8 +356,8 @@ void EvseCharge::setCurrentLimit(float amps) {
         if (settings.phaseMode == PHASE_MODE_AUTO) {
             bool is3p = relay->isThreePhase();
             
-            // Rule: Switch to 3-Phase if requested amps > 23A (User Threshold)
-            if (!is3p && amps > 23.0f) {
+            // Rule: Switch to 3-Phase if requested amps exceed threshold
+            if (!is3p && amps > PHASE_SWITCH_UP_THRESHOLD) {
                 float rescaled = amps / 3.0f;
                 if (rescaled >= MIN_CURRENT) {
                     logger.infof("[EVSE] Auto-Switching to 3-Phase (Req %.2fA > 23A). Rescaling to %.2fA", amps, rescaled);
@@ -360,8 +368,8 @@ void EvseCharge::setCurrentLimit(float amps) {
                     return; // Stop here, do not apply original amps
                 }
             }
-            // Rule: Switch to 1-Phase if requested amps < 7A
-            else if (is3p && amps < 7.0f) {
+            // Rule: Switch to 1-Phase if requested amps drop below threshold
+            else if (is3p && amps < PHASE_SWITCH_DOWN_THRESHOLD) {
                 float rescaled = amps * 3.0f;
                 if (rescaled > settings.maxCurrent) rescaled = settings.maxCurrent;
 
@@ -379,6 +387,23 @@ void EvseCharge::setCurrentLimit(float amps) {
         logger.infof("[EVSE] Setting current limit to %.2f A", amps);
         applyCurrentLimit();
     }
+}
+
+void EvseCharge::setHardwareCurrentLimit(uint8_t amps) {
+    // If the proximity sensor returns 0 (e.g., on failure), it means "undetermined".
+    // In this case, we should not limit to 0A, but rather use a safe default maximum.
+    uint8_t newLimit = (amps == 0) ? 63 : amps;
+
+    if (_hardwareCurrentLimit != newLimit) {
+        _hardwareCurrentLimit = newLimit;
+        logger.infof("[EVSE] Cable hardware limit updated to %d A", _hardwareCurrentLimit);
+        // Re-evaluate the current limit now that the cable limit has changed
+        applyCurrentLimit();
+    }
+}
+
+uint8_t EvseCharge::getHardwareCurrentLimit() const {
+    return _hardwareCurrentLimit;
 }
 
 void EvseCharge::updateActualCurrent(ActualCurrent current) {
@@ -434,7 +459,8 @@ void EvseCharge::checkResumeFromLowLimit() {
     // If we are paused and the current is now high enough, check if the delay has passed.
     if (pausedAtLowLimit && currentLimit >= MIN_CURRENT) {
         unsigned long now = millis();
-        unsigned long elapsed = (now >= pausedSince) ? (now - pausedSince) : 0UL;
+        // Unsigned subtraction handles millis() overflow correctly due to modular arithmetic
+        unsigned long elapsed = now - pausedSince;
 
         if (elapsed >= settings.lowLimitResumeDelayMs) {
             logger.info("[EVSE] Low-limit pause delay elapsed. Resuming.");
@@ -458,19 +484,23 @@ void EvseCharge::applyCurrentLimit() {
         return;
     }
 
+    // The effective limit is the MINIMUM of the dynamic limit (from user/MQTT) and the sensed cable limit.
+    float effectiveLimit = min((float)currentLimit, (float)_hardwareCurrentLimit);
+
     if (vehicleState == VEHICLE_CONNECTED ||
         vehicleState == VEHICLE_READY ||
         vehicleState == VEHICLE_READY_VENTILATION_REQUIRED) {
 
-        if (currentLimit >= MIN_CURRENT) {
+        if (effectiveLimit >= MIN_CURRENT) {
             // If we previously paused due to low-limit, only resume after the
             // configured cooldown in settings.lowLimitResumeDelayMs has elapsed.
             if (pausedAtLowLimit) {
                 unsigned long now = millis();
-                unsigned long elapsed = (now >= pausedSince) ? (now - pausedSince) : 0UL;
+                // Unsigned subtraction handles millis() overflow correctly due to modular arithmetic
+                unsigned long elapsed = now - pausedSince;
                 if (elapsed >= settings.lowLimitResumeDelayMs) {
                     // Resume PWM with current limit (this attaches PWM if needed)
-                    pilot->currentLimit(currentLimit);
+                    pilot->currentLimit(effectiveLimit);
                     logger.info("[EVSE] Resuming pilot PWM after low-limit pause");
                     pausedAtLowLimit = false;
                 } else {
@@ -480,7 +510,7 @@ void EvseCharge::applyCurrentLimit() {
                 }
             } else {
                 // Normal resume/apply
-                pilot->currentLimit(currentLimit);
+                pilot->currentLimit(effectiveLimit);
             }
 
             if (state == STATE_CHARGING &&
@@ -493,21 +523,21 @@ void EvseCharge::applyCurrentLimit() {
             if (settings.disableAtLowLimit) {
                 // PAUSE MODE: Maintain PWM with reduced duty instead of hard standby
                 // Vehicle interprets continuous low-duty PWM as reduced charging capacity
-                // Relay controlled per configuration; resume after delay
-                pilot->currentLimit(currentLimit);  // Keep PWM, just lower duty
+                // Relay controlled per configuration; resume after delay.
+                pilot->currentLimit(effectiveLimit);  // Keep PWM, just lower duty
                 
                 relay->open();
 
                 if (!pausedAtLowLimit) {
-                    logger.infof("[EVSE] Low power pause: PWM set to %.2f A (solar budget insufficient)", currentLimit);
+                    logger.infof("[EVSE] Low power pause: PWM set to %.2f A (solar budget insufficient)", effectiveLimit);
                     pausedAtLowLimit = true;
                     pausedSince = millis();
                 }
             } else {
                 // THROTTLE MODE: Allow current below MIN_CURRENT for continuous solar throttling
                 // No pause/resume delay logic - direct PWM adjustment
-                logger.infof("[EVSE] Applying low current limit: %.2f A (solar throttling)", currentLimit);
-                pilot->currentLimit(currentLimit);
+                logger.infof("[EVSE] Applying low current limit: %.2f A (solar throttling)", effectiveLimit);
+                pilot->currentLimit(effectiveLimit);
                 // Clear pause flag since we're not actually pausing, just throttling
                 pausedAtLowLimit = false;
             }
@@ -537,6 +567,10 @@ bool EvseCharge::getAllowBelow6AmpCharging() const {
 void EvseCharge::setLowLimitResumeDelay(unsigned long ms) {
     settings.lowLimitResumeDelayMs = ms;
     logger.infof("[EVSE] lowLimitResumeDelayMs set to %lu ms", ms);
+}
+
+unsigned long EvseCharge::getLowLimitResumeDelay() const {
+    return settings.lowLimitResumeDelayMs;
 }
 
 /* =========================
@@ -605,8 +639,9 @@ void EvseCharge::managePwmAndRelay() {
             if (state == STATE_CHARGING) {
                 // SAFETY: Only apply PWM after relay is confirmed closed
                 // This ensures vehicle only sees "power available" when power IS available
+                float effectiveLimit = min((float)currentLimit, (float)_hardwareCurrentLimit);
                 relay->close();
-                pilot->currentLimit(currentLimit);
+                pilot->currentLimit(effectiveLimit);
             } else {
                 // Not charging: Force DC Standby. Tells car "Wait".
                 pilot->standby();
@@ -617,8 +652,9 @@ void EvseCharge::managePwmAndRelay() {
         case VEHICLE_READY_VENTILATION_REQUIRED:
             // State D: Vehicle ready with ventilation requirement
             if (state == STATE_CHARGING) {
-                pilot->currentLimit(currentLimit);
+                float effectiveLimit = min((float)currentLimit, (float)_hardwareCurrentLimit);
                 relay->close();
+                pilot->currentLimit(effectiveLimit);
             } else {
                 // Not charging: Force DC Standby.
                 pilot->standby();
@@ -643,10 +679,6 @@ void EvseCharge::managePwmAndRelay() {
             relay->open();
             break;
     }
-}
-unsigned long EvseCharge::getLowLimitResumeDelay() const {
-//    logger.debugf("[EVSE] getLowLimitResumeDelay -> %lu ms", settings.lowLimitResumeDelayMs);
-    return settings.lowLimitResumeDelayMs;
 }
 
 void EvseCharge::setRcmEnabled(bool enable) {

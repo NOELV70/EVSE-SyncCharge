@@ -155,8 +155,17 @@ void WebController::begin(const String& deviceId, bool apMode) {
     // RFID save: Enable/disable RFID reader
     webServer.on("/rfid/save", HTTP_POST, [this]() {
         if (checkAuth()) {
-            if (webServer.hasArg("en")) rfid.setEnabled(webServer.arg("en") == "1");
-            if (webServer.hasArg("bz")) rfid.setBuzzerEnabled(webServer.arg("bz") == "1");
+            if (webServer.hasArg("en")) {
+                bool en = (webServer.arg("en") == "1");
+                rfid.setEnabled(en);
+                config.rfidEnabled = en;
+            }
+            if (webServer.hasArg("bz")) {
+                bool bz = (webServer.arg("bz") == "1");
+                rfid.setBuzzerEnabled(bz);
+                config.rfidBuzzerEnabled = bz;
+            }
+            saveConfig(config); // Persist to centralized NVS
         }
         // Redirect back to RFID config page to see changes
         webServer.sendHeader("Location", "/config/rfid", true);
@@ -291,6 +300,7 @@ void WebController::handleStatus() {
     json += "\"lock\":" + String(evse.isSafetyLockoutActive() ? "true" : "false");
     json += ",\"heap\":" + String(ESP.getFreeHeap());
     json += ",\"psram\":" + String(ESP.getFreePsram());
+    json += ",\"cable_max\":" + String(evse.getHardwareCurrentLimit());
     json += "}";
     webServer.send(200, "application/json", json);
 }
@@ -347,6 +357,7 @@ void WebController::handleRoot() {
                        (evse.getVehicleState() == VEHICLE_READY || evse.getVehicleState() == VEHICLE_READY_VENTILATION_REQUIRED);
 
     h += "<div class='stat'><b>AC RELAY:</b> <span id='acrel'>" + String(relayClosed ? "CLOSED" : "OPEN") + "</span></div>";
+    h += "<div class='stat'><b>CABLE RATING:</b> <span id='cable_max'>--</span> A</div>";
     h += "<div class='stat'><b>PHASE MODE:</b> <span id='phase'>" + String(evse.isThreePhase() ? "3-PHASE" : "1-PHASE") + "</span></div>";
     
     bool connected = evse.isVehicleConnected();
@@ -384,6 +395,7 @@ void WebController::handleRoot() {
     h += "<b>WIFI SIGNAL:</b> <span id='rssi'>" + String(WiFi.RSSI()) + "</span> dBm<br>";
     h += "<b>IP ADDRESS:</b> " + WiFi.localIP().toString() + "</div>";
 
+    
     h += "<a class='btn' style='margin-top:20px;' href='/settings'>SYSTEM SETTINGS</a>";
     h += "<div class='footer'>SYSTEM: " + getVersionString() + "<br>BUILD: " + String(__DATE__) + " " + String(__TIME__) + "<br>&copy; 2026 Noel Vellemans.</div></div>";
     h += String(ajaxScript) + "</body></html>";
@@ -426,7 +438,8 @@ void WebController::handleConfigEvse() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>EVSE Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>EVSE Config</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
     h += "<div class='stat-diag' style='border-left-color:#ff5252; color:#ff5252'>Note: Changing Phase Mode will trigger a reboot.</div>";
-    h += "<label>Max Current (A)<input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
+    h += "<label>Max Current (A)<br><small>Maximum charging current for this installation</small><input name='maxcur' type='number' step='0.1' value='" + String(config.maxCurrent,1) + "'></label>";
+    h += "<label>Detect Cable Current (PP)<select name='sensepp'><option value='1' "+String(config.sensePpEnabled?"selected":"")+">Yes (Recommended)</option><option value='0' "+String(!config.sensePpEnabled?"selected":"")+">No (use Max Current)</option></select></label>";
     
     h += "<label>Phase Mode<select name='phasemode'>";
     h += "<option value='" + String((int)PHASE_MODE_1P) + "' " + String(config.phaseMode == PHASE_MODE_1P ? "selected" : "") + ">Single Phase (Fixed)</option>";
@@ -644,6 +657,11 @@ void WebController::handleSaveConfig() {
     if (webServer.hasArg("maxcur")) {
         float newMax = webServer.arg("maxcur").toFloat();
         config.maxCurrent = constrain(newMax, 6.0f, 80.0f);
+        // Keep hardwareMaxCurrent in sync (single limit, simplified)
+        config.hardwareMaxCurrent = config.maxCurrent;
+        if (webServer.hasArg("sensepp")) {
+            config.sensePpEnabled = (webServer.arg("sensepp") == "1");
+        }
         config.allowBelow6AmpCharging = (webServer.arg("allowlow") == "1");
         config.softStart = (webServer.arg("softstart") == "1");
         config.lowLimitResumeDelayMs = webServer.arg("lldelay").toInt();

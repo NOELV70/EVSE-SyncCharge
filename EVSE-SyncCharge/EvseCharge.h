@@ -44,6 +44,9 @@ public:
     unsigned long getElapsedTime() const;
 
     void setCurrentLimit(float amps);
+    void setHardwareCurrentLimit(uint8_t amps);
+    uint8_t getHardwareCurrentLimit() const;
+
     // Configure behavior when current limit is below MIN_CURRENT (6A)
     // true = Allow continuous throttling (Solar mode); false = Strict J1772 (Pause/Stop)
     void setAllowBelow6AmpCharging(bool allow);
@@ -88,6 +91,9 @@ private:
     VEHICLE_STATE_T vehicleState = VEHICLE_NOT_CONNECTED;
     ChargingSettings settings{};
     float currentLimit = 0.0f;
+    // The maximum current the connected cable can handle, detected by Proximity sensor.
+    // Initialized to a safe, high default.
+    uint8_t _hardwareCurrentLimit = 63;
     unsigned long started = 0;
 
     ActualCurrent _actualCurrent{};

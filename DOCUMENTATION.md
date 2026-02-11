@@ -113,10 +113,30 @@ A fully-featured, web-configurable RFID authentication system.
 |---------|-------------|
 | **Enable/Disable** | Single-click activation in web UI |
 | **Tag Management** | Add, name, and delete up to **10 authorized tags** |
+| **Buzzer Control** | Enable or disable audio feedback for scans |
 | **Learn Mode** | Web-based registration—no manual UID entry required |
 | **Start/Stop** | Tap registered card to toggle charging session |
 | **Visual Feedback** | LED flashes green (accepted) or red (denied) |
 | **Persistent Storage** | Tags stored in NVS, survive reboots |
+
+---
+
+## ⚡ INTELLIGENT ENERGY MANAGEMENT
+
+### Proximity Pilot (PP) Cable Sensing
+The controller automatically detects the maximum current rating of the connected charging cable via the Proximity Pilot (PP) signal. This is a critical safety feature that prevents the charger from delivering more current than the cable can handle, regardless of user settings.
+
+- **Automatic Detection**: Reads the resistance in the cable plug (per IEC 61851) to determine if it's a 13A, 20A, 32A, or 63A cable.
+- **Configurable**: This feature is enabled by default but can be disabled in the web UI. If disabled, the system will use the user-configured "Max Current" as the hardware limit.
+- **Safety Hierarchy**: The final charging current is always the **minimum** of three values:
+  1.  The dynamically requested current (from MQTT/OCPP/Web).
+  2.  The user-configured "Max Current" (the installation's ceiling).
+  3.  The detected cable rating (the physical hardware limit).
+
+### Solar Excess Charging
+- Dynamic amperage adjustment (6A–80A) in real-time
+- **"Solar Throttle" mode**: Modulates power to match solar production curve
+- Sub-6A charging option for maximum PV utilization
 
 ---
 
@@ -156,11 +176,12 @@ Every state can be customized with specific **Colors** (Red, Green, Blue, Cyan, 
 
 ### Hardware Pin Configuration
 
-| Component | GPIO | Function |
-|-----------|------|----------|
+| Component | GPIO (Default) | Function |
+|------------------|----------------|------------------------------------------|
 | **Relay Control** | 16 | Enables/Disables High-Voltage AC Output |
 | **Pilot PWM** | 27 | SAE J1772 Control Pilot (1kHz) |
 | **Pilot Feedback** | 36 | ADC Input for Pilot State Detection |
+| **Proximity Pilot**| 39 | ADC Input for Cable Current Sensing |
 | **RFID SS** | 5 | SPI Slave Select for RC522 |
 | **RFID RST** | 17 | Reset for RC522 module |
 | **Buzzer** | 4 | Audio feedback for RFID |
@@ -200,8 +221,6 @@ cmnd/EVSE-[ID]/limit   → Set maximum current (6A–80A)
 - Configurable port (default: 23)
 - Real-time firmware debug output
 
----
-
 ## ⚡ INTELLIGENT ENERGY MANAGEMENT
 
 ### Solar Excess Charging
@@ -218,6 +237,7 @@ Runtime switching for optimal Solar PV integration (1.4kW to 22kW range).
 - Real-time MQTT/OCPP endpoints for external energy meters
 - Instantly throttle EVSE when household loads peak
 - Protect main fuse from overload
+
 
 ---
 
@@ -265,32 +285,6 @@ Once connected to your home WiFi, access the dashboard at `http://evse-xxxx.loca
 | **License** | GNU General Public License v2.0 (GPLv2) |
 | **Copyright** | © 2026 Noel Vellemans |
 
----
-
-## 🔬 APPENDIX: Pilot Line Test Fixture
-
-### Simulating EVSE States with Cascade Resistors
-
-For bench testing without a vehicle, use this resistor network:
-
-**Components:**
-- Series resistor: 1 kΩ (in line with PWM)
-- BAT48 diode: ~0.3V drop
-- Cascade resistors (E12 values):
-  - R9 = 3.3 kΩ → 9V state
-  - R6 = 1.6 kΩ → 6V state (parallel with R9)
-  - R3 = 560 Ω → 3V state (parallel with R9||R6)
-
-**Operation:**
-| State | Resistors Active | Pilot Voltage |
-|-------|------------------|---------------|
-| 9V | R9 only | 8.9–10.4V |
-| 6V | R9 ‖ R6 | 5.9–6.95V |
-| 3V | R9 ‖ R6 ‖ R3 | 2.9–3.45V |
-| 0V | Short to GND | 0V |
-
----
-
-# ═══════════════════════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════════════════════
 #                              END OF DOCUMENT
 # ═══════════════════════════════════════════════════════════════════════════════

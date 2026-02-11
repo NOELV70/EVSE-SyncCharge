@@ -11,7 +11,8 @@ Component       GPIO    Type    Defined In      Notes
 Relay L1 (Main) 14      OUT     Relay.cpp       AC Contactor (ADC2_CH6 - Safe for Digital Out)
 Relay L2+L3     13      OUT     Relay.cpp       Phase Expansion (ADC2_CH4 - Safe for Digital Out). *Requires 15s safety delay on switch*
 Pilot PWM       27      OUT     Pilot.h         1kHz Control Pilot Signal (+/- 12V)
-Pilot ADC       36      IN      Pilot.h         Sensor VP (Analog Feedback)
+Pilot ADC       36      IN      Pilot.h         Sensor VP (Analog Feedback for CP state detection)
+Proximity (PP)  39      IN      Proximity.h     Sensor VN (Analog - Cable current rating detection)
 
 --------------------------------------------------------------------------------
 2. SAFETY & PROTECTION (RCM)

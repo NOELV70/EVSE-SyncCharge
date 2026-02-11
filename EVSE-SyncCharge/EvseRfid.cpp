@@ -39,15 +39,15 @@ void EvseRfid::begin(int ssPin, int rstPin, int buzzerPin) {
     }
     
     _prefs.begin("evse-rfid", false);
-    _enabled = _prefs.getBool("enabled", false);
-    _buzzerEnabled = _prefs.getBool("buzzer", true);
+    // Note: enabled and buzzer settings are now managed by AppConfig (centralized NVS)
+    // Only tag data is stored in this namespace.
     loadTags();
     logger.infof("[RFID] Loaded %d tags from NVS.", _tags.size());
 }
 
 void EvseRfid::setEnabled(bool enabled) {
     _enabled = enabled;
-    _prefs.putBool("enabled", enabled);
+    // Note: Persistence is handled by AppConfig via saveConfig()
     logger.infof("[RFID] System set to %s", enabled ? "ENABLED" : "DISABLED");
 }
 
@@ -55,7 +55,7 @@ bool EvseRfid::isEnabled() { return _enabled; }
 
 void EvseRfid::setBuzzerEnabled(bool enabled) {
     _buzzerEnabled = enabled;
-    _prefs.putBool("buzzer", enabled);
+    // Note: Persistence is handled by AppConfig via saveConfig()
 }
 
 bool EvseRfid::isBuzzerEnabled() { return _buzzerEnabled; }

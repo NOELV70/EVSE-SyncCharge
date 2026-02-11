@@ -37,13 +37,15 @@ void loadConfig(AppConfig &config) {
     config.pauseImmediate = prefs.getBool("e_pause_im", true);
     config.lowLimitResumeDelayMs = prefs.getULong("e_res_delay", 300000UL);
     config.maxCurrent = prefs.getFloat("e_max_cur", 32.0f);
+    config.hardwareMaxCurrent = prefs.getFloat("e_hw_max_cur", 32.0f);
+    config.sensePpEnabled = prefs.getBool("e_sense_pp", true);
     config.mqttFailsafeEnabled = prefs.getBool("m_safe", false);
     config.mqttFailsafeTimeout = prefs.getULong("m_safe_t", 600);
     config.rcmEnabled = prefs.getBool("e_rcm_en", false);
     config.solarStopTimeout = prefs.getULong("e_sol_to", 0); // Default 0 (Disabled)
     config.phaseMode = (PhaseMode)prefs.getInt("e_phase_mode", (int)PHASE_MODE_1P);
-    //config.rfidEnabled = prefs.getBool("rfid_en", false);
-    //config.rfidBuzzerEnabled = prefs.getBool("rfid_bz", false);
+    config.rfidEnabled = prefs.getBool("rfid_en", false);
+    config.rfidBuzzerEnabled = prefs.getBool("rfid_bz", true);
 
 
     config.ocppEnabled = prefs.getBool("o_en", false);
@@ -74,13 +76,15 @@ void saveConfig(const AppConfig &config) {
     prefs.putBool("e_allow_low", config.allowBelow6AmpCharging); prefs.putBool("e_pause_im", config.pauseImmediate);
     prefs.putBool("e_soft_start", config.softStart);
     prefs.putULong("e_res_delay", config.lowLimitResumeDelayMs); prefs.putFloat("e_max_cur", config.maxCurrent);
+    prefs.putFloat("e_hw_max_cur", config.hardwareMaxCurrent);
+    prefs.putBool("e_sense_pp", config.sensePpEnabled);
     prefs.putBool("m_safe", config.mqttFailsafeEnabled);
     prefs.putULong("m_safe_t", config.mqttFailsafeTimeout);
     prefs.putBool("e_rcm_en", config.rcmEnabled);
     prefs.putULong("e_sol_to", config.solarStopTimeout);
     prefs.putInt("e_phase_mode", (int)config.phaseMode);
-//    prefs.putBool("rfid_en", config.rfidEnabled);
-//    prefs.putBool("rfid_bz", config.rfidBuzzerEnabled);
+    prefs.putBool("rfid_en", config.rfidEnabled);
+    prefs.putBool("rfid_bz", config.rfidBuzzerEnabled);
 
     prefs.putBool("o_en", config.ocppEnabled);
     prefs.putString("o_host", config.ocppHost);

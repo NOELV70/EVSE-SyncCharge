@@ -226,3 +226,18 @@ Diagnostics	Real-time "Cyan-Diag" Web Console
 Why EVSE-SyncCharge?
 Most DIY controllers are just "smart relays." EVSE-SyncCharge is a Charge Controller. 
 It understands the physics of the Pilot signal, respects the safety limits of the vehicle's Onboard Charger, and integrates seamlessly into professional energy management systems.
+
+
+
+v5.7 Release Notes: Enterprise Connectivity & Reliability
+This release focuses on hardening the network stack for production environments.
+
+1. TLS Security (MQTTS): Full support for MQTT over TLS. Secure your control traffic with encryption.
+
+2. Smart Availability & LWT: Implemented MQTT "Last Will and Testament". Home Assistant now correctly reflects the device status as "Unavailable" immediately upon power loss or network failure, preventing ghost commands.
+
+3. Exponential Backoff: Intelligent reconnection logic ($1s \to 2s \to 4s \dots$) prevents network congestion during broker outages.
+
+4. PSRAM Optimization: Large JSON payloads (like HA Discovery) are now allocated in external PSRAM, freeing up internal SRAM to ensure WiFi and SSL stack stability.
+
+5. Visual Feedback: Configurable WS2812B LED states for Charging, RFID Auth, and Errors.

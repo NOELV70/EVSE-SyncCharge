@@ -1,0 +1,31 @@
+The Energy Saga Continues — Building Smarter Self-Consumption with EVSE-SyncCharge
+
+Most "smart" DIY EV chargers are just Wi-Fi relays in a fancy box. I decided to build something that actually deserves the name.
+
+Meet EVSE-SyncCharge. It's not just a charger; it's a full-stack Energy Management Gateway, built from the ground up for real-time control and safety. The goal? To dynamically match your EV charging with solar production and household load — so you use your own energy first and avoid paying grid prices when you don't have to.
+
+🚀 Introducing EVSE-SyncCharge — an embedded project engineered for real-world EV charging control. 
+It implements the full SAE J1772 / IEC 61851 stack, properly negotiates the pilot signal, and enforces onboard charger limits. Because EV charging can be done better.
+🌟 Core Features
+☀️ Charge from excess solar — prioritize what you generate
+⚡ Real-time load balancing — react instantly to household demand
+🔌 Integrate with MQTT & OCPP backends
+🧠 Native Home Assistant integration — no YAML required
+🔄 Dynamic 1-phase / 3-phase switching (1.4 kW → 22 kW) with fully compliant discharge interlocks
+🔒 Safety-first architecture — from hardware to firmware
+
+
+⚙️ Project Status: Active Development
+EVSE-SyncCharge is an ongoing project. It has recently passed the alpha phase as a working proof of concept — the system is functional and actively tested, but development is still in progress.
+
+Detailed schematics, hardware documentation, and additional technical information will be released gradually as available free time permits. This is a passion project, built properly, not rushed.
+
+Because EV infrastructure deserves industrial-grade engineering — even in residential environments.
+
+If you're into embedded systems, EVSE, or smart energy, check out the repo. Feedback and contributions are always welcome!
+
+https://lnkd.in/eTXNG_fZ
+https://github.com/NOELV70/EVSE-SyncCharge
+
+
+#EVSE #EmbeddedSystems #EnergyManagement #MQTT #Solar #IoT #SmartGrid 

@@ -1,15 +1,28 @@
 # EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
- 
-Your Solar Power, Your Car, Zero Waste,<br>iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to. <br>
+<br>
+<h3> <center> Your Solar Power, Your Car, Zero Waste, iow, the ability to charge your EV with excess solar energy, AND never pay grid prices when you don’t have to. <br> </h3>
+<br>
+<br>
+<img width="1088" height="960" alt="EVSE-Sync-CHARGE" src="https://github.com/user-attachments/assets/3285fc1c-a4ee-49e0-ad6b-7e0b0edb869d" />
+<br>
 
-![EVSE-SYNCCHARGE](https://github.com/user-attachments/assets/1a2f5a60-b5d0-483b-8ea7-601f87595051)
+> [!CAUTION]
+> ### ⚠ Project Status Notice
+> **EVSE-SyncCharge is an ongoing project.**
+>
+> It has recently passed the alpha phase as a working proof of concept.<br>The system is functional and actively tested, but development is still in progress.
+>
+> Detailed schematics, hardware documentation, and additional technical information will be released gradually as available free time permits.<br>
 
-EVSE-SyncCharge - What ? A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT and/or OCCP integration.
+EVSE-SyncCharge - What?<br> 
+EVSE-SyncCharge isn’t just another EV charger — it’s the intelligent bridge between your home’s energy ecosystem and your vehicle.
+With millisecond-precise control, seamless MQTT and Home Assistant integration, and secure over-the-air updates that keep your system evolving, EVSE-SyncCharge puts real power back in your hands.
+
 
 Most DIY EVSE controllers behave like smart relays — they turn power on and off, EVSE-SyncCharge is a 'smart' charge controller.
 It implements proper pilot-signal behavior, respects the electrical and safety constraints of the vehicle’s onboard charger, and is designed to integrate into real-world energy-management systems.
 
-_If you’re building more than a power switch, this is the controller you want._
+_If you’re building more than a power switch, this is the DIY controller you want/need._
 
 <img width="1209" height="716" alt="image" src="https://github.com/user-attachments/assets/f9b5a872-c2fd-47f3-84fe-b304f740b171" />
 
@@ -95,7 +108,7 @@ _**EVSE-SyncCharge**_ :
 * is a EV charge controller that understands the power of the pilot signal,<br>
 * enforces onboard-charger safety limits,<br>
 * and integrates seamlessly with home and commercial energy-management systems.<br>
-
+* EVSE-SyncCharge sits at the intersection of your power-grid and your vehicle, acting as the "brain" that negotiates every watt.
 
 Built by an engineer, Trusted where it matters..<br>
 

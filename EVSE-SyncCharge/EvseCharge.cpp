@@ -10,6 +10,7 @@
  */
 
 #include "EvseCharge.h"
+#include "Pilot.h"
 #include "Rcm.h"
 #include "EvseLogger.h"
 #include <Arduino.h>

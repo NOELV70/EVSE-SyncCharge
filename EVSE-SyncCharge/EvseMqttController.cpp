@@ -10,6 +10,7 @@
  */
 
 #include "EvseMqttController.h"
+#include "Pilot.h"
 #include "EvseLogger.h"
 #include "EvseConfig.h"
 #include "os_esp_malloc.h"

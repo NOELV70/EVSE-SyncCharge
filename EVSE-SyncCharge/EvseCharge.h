@@ -16,11 +16,12 @@
 #define EVSE_CHARGE_H_
 
 #include <Arduino.h>
-#include "Pilot.h"
 #include "Relay.h"
 #include "EvseTypes.h"
 
 typedef void (*EvseEventHandler)();
+
+class Pilot;
 
 class EvseCharge {
 public:
@@ -66,6 +67,7 @@ public:
     bool isThreePhase() const;
 
     float getPilotDuty() const;
+    Pilot* getPilot() { return pilot; }
 
     void enableCurrentTest(bool enable);
     void setCurrentTest(float amps);

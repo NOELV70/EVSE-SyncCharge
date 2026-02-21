@@ -45,6 +45,7 @@
  * ========================================================================================= */
 
 #include "Proximity.h"
+#include "EvseCharge.h"
 #include "EvseLogger.h" // Assumes access to the project's logger
 
 Proximity::Proximity(EvseCharge& evse, AppConfig& config) :
@@ -55,14 +56,11 @@ Proximity::Proximity(EvseCharge& evse, AppConfig& config) :
 {}
 
 bool Proximity::begin() {
-    // Use Arduino's analogReadMilliVolts() for PP sensing.
-    // This avoids conflict with Pilot's ADC_UNIT_1 continuous mode driver.
-    // The Arduino API shares the ADC hardware safely.
-    pinMode(PIN_PROXIMITY_IN, INPUT);
+    // Standard Arduino ADC Setup
     analogSetPinAttenuation(PIN_PROXIMITY_IN, ADC_11db);
-
+    pinMode(PIN_PROXIMITY_IN, INPUT);
     _initialized = true;
-    logger.infof("[PROXIMITY] Initialized on GPIO %d (using Arduino ADC).", PIN_PROXIMITY_IN);
+    logger.infof("[PROXIMITY] Initialized on GPIO %d.", PIN_PROXIMITY_IN);
     return true;
 }
 
@@ -72,10 +70,10 @@ uint8_t Proximity::getMaxCurrent() {
         return 0; // Return a safe/default value
     }
 
-    // Use Arduino's calibrated millivolt reading (shares ADC safely with Pilot)
+    // Read directly using standard Arduino API
     int voltage_mv = analogReadMilliVolts(PIN_PROXIMITY_IN);
 
-    logger.debugf("[PROXIMITY] Measured: %dmV", voltage_mv);
+    logger.infof("[PROXIMITY] Measured: %dmV", voltage_mv);
 
     uint8_t current;
     if (voltage_mv < PROXIMITY_VOLTAGE_MV_SHORT) {
@@ -107,7 +105,7 @@ uint8_t Proximity::getMaxCurrent() {
 void Proximity::loop() {
     // Periodically check cable current limit
     // We use a simple timer to avoid reading the ADC on every single loop cycle.
-    if (millis() - _lastCheck > 2000) { // Check every 2 seconds
+    if (millis() - _lastCheck > 1000) { // Check every 1 second (Debug)
         _lastCheck = millis();
         
         // Start with hardware-configured max as the ceiling

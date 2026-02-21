@@ -26,8 +26,9 @@
 #define PROXIMITY_H
 
 #include <Arduino.h>
-#include "EvseCharge.h"
 #include "EvseConfig.h"
+
+class EvseCharge;
 
 // =========================
 // Hardware Pin Configuration
@@ -40,10 +41,10 @@ constexpr int PIN_PROXIMITY_IN = 39; // Default: GPIO39 (ADC1_CH3 on ESP32)
 // These values correspond to the resistance in the EV cable plug, which indicates
 // the cable's maximum current capacity. Higher resistance = higher voltage = lower current.
 constexpr int PROXIMITY_VOLTAGE_MV_NO_CABLE = 3000; // Open circuit / No cable connected
-constexpr int PROXIMITY_VOLTAGE_MV_13A = 2500; // Threshold for 13A cable (e.g., 1.5kOhm resistor)
-constexpr int PROXIMITY_VOLTAGE_MV_20A = 1500; // Threshold for 20A cable (e.g., 680 Ohm resistor)
-constexpr int PROXIMITY_VOLTAGE_MV_32A = 800;  // Threshold for 32A cable (e.g., 220 Ohm resistor)
-constexpr int PROXIMITY_VOLTAGE_MV_63A = 400;  // Threshold for 63A cable (e.g., 100 Ohm resistor)
+constexpr int PROXIMITY_VOLTAGE_MV_13A = 1800; // Threshold for 13A cable (e.g., 1.5kOhm resistor)
+constexpr int PROXIMITY_VOLTAGE_MV_20A = 1200; // Threshold for 20A cable (e.g., 680 Ohm resistor)
+constexpr int PROXIMITY_VOLTAGE_MV_32A = 550;  // Threshold for 32A cable (e.g., 220 Ohm resistor)
+constexpr int PROXIMITY_VOLTAGE_MV_63A = 280;  // Threshold for 63A cable (e.g., 100 Ohm resistor)
 constexpr int PROXIMITY_VOLTAGE_MV_SHORT = 200;  // Short circuit - ERROR condition
 
 class Proximity {
@@ -57,8 +58,6 @@ public:
 private:
     uint8_t getMaxCurrent();
 
-    // NOTE: Uses Arduino analogReadMilliVolts() instead of IDF oneshot driver
-    // to avoid conflict with Pilot's ADC_UNIT_1 continuous mode.
     bool _initialized;
     EvseCharge* _evse;
     AppConfig* _config;

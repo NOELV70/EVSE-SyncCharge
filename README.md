@@ -15,7 +15,9 @@
 > Detailed schematics, hardware documentation, and additional technical information will be released gradually as available free time permits.<br>
 
 EVSE-SyncCharge - What?<br> 
-A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT ( MQTT / Homeassistant out of the box) and/or OCCP integration.
+EVSE-SyncCharge isn’t just another EV charger — it’s the intelligent bridge between your home’s energy ecosystem and your vehicle.
+With millisecond-precise control, seamless MQTT and Home Assistant integration, and secure over-the-air updates that keep your system evolving, EVSE-SyncCharge puts real power back in your hands.
+
 
 Most DIY EVSE controllers behave like smart relays — they turn power on and off, EVSE-SyncCharge is a 'smart' charge controller.
 It implements proper pilot-signal behavior, respects the electrical and safety constraints of the vehicle’s onboard charger, and is designed to integrate into real-world energy-management systems.
@@ -106,7 +108,7 @@ _**EVSE-SyncCharge**_ :
 * is a EV charge controller that understands the power of the pilot signal,<br>
 * enforces onboard-charger safety limits,<br>
 * and integrates seamlessly with home and commercial energy-management systems.<br>
-
+* EVSE-SyncCharge sits at the intersection of your power-grid and your vehicle, acting as the "brain" that negotiates every watt.
 
 Built by an engineer, Trusted where it matters..<br>
 

@@ -1,15 +1,25 @@
 # EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
  
-Your Solar Power, Your Car, Zero Waste,<br>iow, the ability to charge your EV with excess solar energy — and never pay grid prices when you don’t have to. <br>
+<h2> <center> Your Solar Power, Your Car, Zero Waste,<br>iow, the ability to charge your EV with excess solar energy <br> 
+— AND never pay grid prices when you don’t have to. <br> </center></h2>
 
-![EVSE-SYNCCHARGE](https://github.com/user-attachments/assets/1a2f5a60-b5d0-483b-8ea7-601f87595051)
+<img width="1088" height="960" alt="EVSE-Sync-CHARGE" src="https://github.com/user-attachments/assets/3285fc1c-a4ee-49e0-ad6b-7e0b0edb869d" />
 
-EVSE-SyncCharge - What ? A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT and/or OCCP integration.
+<br>
+<details open>
+<summary><b><font color="red">⚠ Project Status: Alpha (Ongoing Project)</font></b></summary>
+<br>
+EVSE-SyncCharge has recently passed the alpha phase as a working proof of concept.
+The system is functional and actively tested, but development is still in progress.
+Detailed schematics and hardware documentation will be released gradually.
+</details>
+<br>**
+EVSE-SyncCharge - What? **<br> A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT ( MQTT / Homeassistant out of the box) and/or OCCP integration.
 
 Most DIY EVSE controllers behave like smart relays — they turn power on and off, EVSE-SyncCharge is a 'smart' charge controller.
 It implements proper pilot-signal behavior, respects the electrical and safety constraints of the vehicle’s onboard charger, and is designed to integrate into real-world energy-management systems.
 
-_If you’re building more than a power switch, this is the controller you want._
+_If you’re building more than a power switch, this is the DIY controller you want/need._
 
 <img width="1209" height="716" alt="image" src="https://github.com/user-attachments/assets/f9b5a872-c2fd-47f3-84fe-b304f740b171" />
 

@@ -178,14 +178,17 @@ Every state can be customized with specific **Colors** (Red, Green, Blue, Cyan, 
 
 | Component | GPIO (Default) | Function |
 |------------------|----------------|------------------------------------------|
-| **Relay Control** | 16 | Enables/Disables High-Voltage AC Output |
+| **Relay L1 (Main)** | 14 | Enables/Disables High-Voltage AC Output |
+| **Relay L2+L3** | 13 | Phase Expansion (3-Phase Switching) |
 | **Pilot PWM** | 27 | SAE J1772 Control Pilot (1kHz) |
 | **Pilot Feedback** | 36 | ADC Input for Pilot State Detection |
 | **Proximity Pilot**| 39 | ADC Input for Cable Current Sensing |
+| **RCM Fault** | 25 | Residual Current Monitor Input |
+| **RCM Test** | 26 | RCM Self-Test Trigger |
 | **RFID SS** | 5 | SPI Slave Select for RC522 |
 | **RFID RST** | 17 | Reset for RC522 module |
 | **Buzzer** | 4 | Audio feedback for RFID |
-| **RGB LED** | Configurable | WS2812 status indicator |
+| **RGB LED** | 22 | WS2812 status indicator |
 
 ### Technical Specifications
 

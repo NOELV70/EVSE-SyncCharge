@@ -1,20 +1,21 @@
 # EVSE-SyncCharge : Charge Your Car, NOT Your Electricity Bill.
- 
-<h2> <center> Your Solar Power, Your Car, Zero Waste,<br>iow, the ability to charge your EV with excess solar energy <br> 
-— AND never pay grid prices when you don’t have to. <br> </center></h2>
-
+<br>
+<h3> <center> Your Solar Power, Your Car, Zero Waste, iow, the ability to charge your EV with excess solar energy, AND never pay grid prices when you don’t have to. <br> </h3>
+<br>
+<br>
 <img width="1088" height="960" alt="EVSE-Sync-CHARGE" src="https://github.com/user-attachments/assets/3285fc1c-a4ee-49e0-ad6b-7e0b0edb869d" />
+<br>
 
-<br>
-<details open>
-<summary><b><font color="red">⚠ Project Status: Alpha (Ongoing Project)</font></b></summary>
-<br>
-EVSE-SyncCharge has recently passed the alpha phase as a working proof of concept.
-The system is functional and actively tested, but development is still in progress.
-Detailed schematics and hardware documentation will be released gradually.
-</details>
-<br>**
-EVSE-SyncCharge - What? **<br> A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT ( MQTT / Homeassistant out of the box) and/or OCCP integration.
+> [!CAUTION]
+> ### ⚠ Project Status Notice
+> **EVSE-SyncCharge is an ongoing project.**
+>
+> It has recently passed the alpha phase as a working proof of concept.<br>The system is functional and actively tested, but development is still in progress.
+>
+> Detailed schematics, hardware documentation, and additional technical information will be released gradually as available free time permits.<br>
+
+EVSE-SyncCharge - What?<br> 
+A real-time link between your EV and your 'home'-grid, delivering millisecond signaling, OTA updates, and open IoT ( MQTT / Homeassistant out of the box) and/or OCCP integration.
 
 Most DIY EVSE controllers behave like smart relays — they turn power on and off, EVSE-SyncCharge is a 'smart' charge controller.
 It implements proper pilot-signal behavior, respects the electrical and safety constraints of the vehicle’s onboard charger, and is designed to integrate into real-world energy-management systems.

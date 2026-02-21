@@ -63,9 +63,10 @@ Universal Connectivity
 
 
 * Captive Portal Onboarding: A polished "Out-of-the-Box" experience allows users to configure WiFi, Static IPs, and Amperage limits via a smartphone browser—no coding required.
-*   **Customizable Web Interface:** Features a responsive dashboard with **Different selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green), allowing users to personalize the charger's appearance via the Admin panel.
+*   **Customizable Web Interface:** Features a responsive dashboard with **7 selectable color themes** (Yellow, Blue, Dark Blue, Green, Dark Green, Red, Dark Red), allowing users to personalize the charger's appearance via the Admin panel.
  ![EVSE-themes](https://github.com/user-attachments/assets/0e4e9efa-d81b-4593-9af7-b700fb3cc890)
  
+*   **Telnet Remote Console:** Integrated Telnet server for real-time remote logging and debugging. Connect via any Telnet client to view live system logs, authentication events, and state transitions.
 
   
 *   **Dynamic LED Feedback:** Supports WS2812B addressable LEDs for intuitive status indication (Charging, Error, RFID Auth, Solar Wait) with customizable colors and effects.

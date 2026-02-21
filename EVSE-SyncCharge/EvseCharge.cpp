@@ -339,7 +339,9 @@ unsigned long EvseCharge::getElapsedTime() const {
 
 void EvseCharge::setCurrentLimit(float amps) {
     if (amps < 0) amps = 0;
-    if (amps > settings.maxCurrent) amps = settings.maxCurrent;
+    
+    // Store raw request for phase switching logic (before clamping)
+    float rawRequest = amps;
 
     // BLOCK UPDATES during Phase Switch transition
     // The system is waiting for the relay capacitor discharge (15s).
@@ -348,40 +350,48 @@ void EvseCharge::setCurrentLimit(float amps) {
         return;
     }
 
-    if (amps != currentLimit) {
-        // --- AUTO PHASE SWITCHING LOGIC ---
-        // We check for phase switching BEFORE applying the new limit.
-        // This prevents a momentary PWM spike to the requested high current 
-        // before the system decides to stop and switch phases.
-        if (settings.phaseMode == PHASE_MODE_AUTO) {
-            bool is3p = relay->isThreePhase();
+    // --- AUTO PHASE SWITCHING LOGIC ---
+    // Check phase switching using RAW request BEFORE clamping.
+    // This allows requests like 60A to trigger 3P mode (60A / 3 = 20A per phase).
+    if (settings.phaseMode == PHASE_MODE_AUTO) {
+        bool is3p = relay->isThreePhase();
+        
+        // Rule: Switch to 3-Phase if requested total power exceeds threshold
+        // e.g., 60A request → switch to 3P, rescale to 60/3 = 20A per phase
+        if (!is3p && rawRequest > PHASE_SWITCH_UP_THRESHOLD) {
+            float rescaled = rawRequest / 3.0f;
+            // Clamp the rescaled value to hardware/config limits
+            if (rescaled > settings.maxCurrent) rescaled = settings.maxCurrent;
             
-            // Rule: Switch to 3-Phase if requested amps exceed threshold
-            if (!is3p && amps > PHASE_SWITCH_UP_THRESHOLD) {
-                float rescaled = amps / 3.0f;
-                if (rescaled >= MIN_CURRENT) {
-                    logger.infof("[EVSE] Auto-Switching to 3-Phase (Req %.2fA > 23A). Rescaling to %.2fA", amps, rescaled);
-                    stopCharging();
-                    relay->setThreePhase(true);
-                    currentLimit = rescaled;
-                    _autoRestartPhaseSwitch = true;
-                    return; // Stop here, do not apply original amps
-                }
-            }
-            // Rule: Switch to 1-Phase if requested amps drop below threshold
-            else if (is3p && amps < PHASE_SWITCH_DOWN_THRESHOLD) {
-                float rescaled = amps * 3.0f;
-                if (rescaled > settings.maxCurrent) rescaled = settings.maxCurrent;
-
-                logger.infof("[EVSE] Auto-Switching to 1-Phase (Req %.2fA < 7A). Rescaling to %.2fA", amps, rescaled);
+            if (rescaled >= MIN_CURRENT) {
+                logger.infof("[EVSE] Auto-Switching to 3-Phase (Req %.1fA > %.1fA). Per-phase: %.1fA", 
+                             rawRequest, PHASE_SWITCH_UP_THRESHOLD, rescaled);
                 stopCharging();
-                relay->setThreePhase(false);
+                relay->setThreePhase(true);
                 currentLimit = rescaled;
                 _autoRestartPhaseSwitch = true;
-                return; // Stop here
+                return; // Stop here, do not apply original amps
             }
         }
-        
+        // Rule: Switch to 1-Phase if requested amps drop below threshold
+        else if (is3p && rawRequest < PHASE_SWITCH_DOWN_THRESHOLD) {
+            float rescaled = rawRequest * 3.0f;
+            if (rescaled > settings.maxCurrent) rescaled = settings.maxCurrent;
+
+            logger.infof("[EVSE] Auto-Switching to 1-Phase (Req %.1fA < %.1fA). Rescaling to %.1fA", 
+                         rawRequest, PHASE_SWITCH_DOWN_THRESHOLD, rescaled);
+            stopCharging();
+            relay->setThreePhase(false);
+            currentLimit = rescaled;
+            _autoRestartPhaseSwitch = true;
+            return; // Stop here
+        }
+    }
+    
+    // Normal path: Clamp to maxCurrent (no phase switch occurred)
+    if (amps > settings.maxCurrent) amps = settings.maxCurrent;
+
+    if (amps != currentLimit) {
         // Normal update if no switch occurred
         currentLimit = amps;
         logger.infof("[EVSE] Setting current limit to %.2f A", amps);

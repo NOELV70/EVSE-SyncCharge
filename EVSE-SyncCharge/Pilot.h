@@ -20,10 +20,57 @@
 // Constants - OFFICIAL SAE J1772 VALUES
 // =========================
 
-// Voltage divider scale factor (Matches your hardware) ( 5K6 to +3v3 , 4K7 to gnd , 15K in seial with input signal ( output volatge following opamp) )
-const float ZERO_OFFSET_MV = 1200.0f;   // Vx when V2=0V
-const float SCALE = 6.90f;           // mV_out per mV_in
+/* =========================================================================================
+ * ADC to Pilot Voltage Calibration
+ * =========================================================================================
+ *
+ * What is this?
+ * -------------
+ * The ESP32's Analog-to-Digital Converter (ADC) reads a voltage from the pilot
+ * feedback circuit. However, this raw reading (in millivolts, or "mV") is not the
+ * same as the actual J1772 pilot voltage (which swings from +12V to -12V).
+ *
+ * This section defines the constants needed to translate the ADC's measurement into
+ * the real-world pilot voltage.
+ *
+ * How it works: 2-Point Linear Calibration
+ * -----------------------------------------
+ * We use a simple and effective method called 2-point calibration. It's like
+ * drawing a straight line on a graph. We measure two known points, and then we can
+ * find any other value along that line.
+ *
+ * Our two known points are the extremes of the pilot signal:
+ *
+ *   1. When the real pilot voltage is -12V, we measure that the ADC reads 350 mV.
+ *      (CAL_ADC_MV_LOW = 350, CAL_PILOT_MV_LOW = -12000)
+ *
+ *   2. When the real pilot voltage is +12V, we measure that the ADC reads 3100 mV.
+ *      (CAL_ADC_MV_HIGH = 3100, CAL_PILOT_MV_HIGH = 12000)
+ *
+ * Calculating the Slope
+ * ---------------------
+ * The 'slope' of this line tells us how many real millivolts the pilot signal
+ * changes for every one millivolt change in the ADC reading.
+ *
+ *   Slope = (Change in Real Voltage) / (Change in ADC Reading)
+ *         = (12000 - (-12000)) / (3100 - 350)
+ *         = 24000 / 2752 = 8.72093
+ *
+ * This means for every 1 mV the ADC value goes up, the real pilot voltage has
+ * gone up by ~8.72 mV.
+ *
+ * The Final Formula (in Pilot::convertMv)
+ * ---------------------------------------
+ * The code uses this formula to convert any new ADC reading:
+ *   RealVoltage = StartVoltage + (ADC_Reading - Start_ADC_Reading) * Slope
+ */
+constexpr int CAL_ADC_MV_LOW     = 350;      // ADC reading at -12V
+constexpr int CAL_PILOT_MV_LOW   = -12000;   // -12V in mV
+constexpr int CAL_ADC_MV_HIGH    = 3100;     // ADC reading at +12V
+constexpr int CAL_PILOT_MV_HIGH  = 12000;    // +12V in mV
 
+// Slope = (12000 - (-12000)) / (3100 - 350) = 24000 / 2752 = 8.72093
+constexpr float PILOT_CAL_SLOPE  = (float)(CAL_PILOT_MV_HIGH - CAL_PILOT_MV_LOW) / (float)(CAL_ADC_MV_HIGH - CAL_ADC_MV_LOW);
 
 
 // Current limits
@@ -43,7 +90,7 @@ constexpr float J1772_HIGH_RANGE_OFFSET    = 64.0f;
 // State C: +6V  (Vehicle ready, charging) -> ~5.0V after divider
 // State D: +3V  (Ventilation required) -> ~2.0V after divider
 // State E/F: 0V/-12V (No power / Fault)
-constexpr int VOLTAGE_STATE_NOT_CONNECTED = 10600;  // J1772 State A threshold
+constexpr int VOLTAGE_STATE_NOT_CONNECTED = 11000;  // J1772 State A threshold
 constexpr int VOLTAGE_STATE_CONNECTED     =  8000;  // J1772 State B threshold
 constexpr int VOLTAGE_STATE_READY         =  5000;  // J1772 State C threshold
 constexpr int VOLTAGE_STATE_VENTILATION   =  2000;  // J1772 State D threshold

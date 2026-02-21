@@ -250,7 +250,7 @@ VEHICLE_STATE_T Pilot::read() {
         lowRaw = tLow;
     }
 #endif
-    //logger.debugf("[PILOT] - samples - HI %d , LOW: %d", highRaw, lowRaw);
+    logger.debugf("[PILOT] - samples - HI %d , LOW: %d", highRaw, lowRaw);
     
     // 2. Conversion
     highVoltageMv = (int)convertMv(highRaw);
@@ -300,7 +300,9 @@ VEHICLE_STATE_T Pilot::read() {
 float Pilot::getVoltage() { return (float)highVoltageMv / 1000.0f; }
 float Pilot::getPwmDuty() { return currentDutyPercent; }
 float Pilot::convertMv(int adMv) {
-    return ((float)adMv - ZERO_OFFSET_MV) * SCALE;
+    // Formula: V = V_min + (ADV - ADV_min) * scale
+    // Returns Pilot Voltage in Millivolts
+    return (float)CAL_PILOT_MV_LOW + ((float)(adMv - CAL_ADC_MV_LOW) * PILOT_CAL_SLOPE);
 }
 
 float Pilot::ampsToDuty(float amps) {

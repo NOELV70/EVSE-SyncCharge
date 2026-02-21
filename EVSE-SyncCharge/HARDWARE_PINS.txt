@@ -36,9 +36,9 @@ Buzzer          4       OUT     Main Sketch*    Active Buzzer (Passed to EvseRfi
 Component       GPIO    Type    Defined In      Notes
 --------------  ----    ----    -----------     --------------------------------
 SDA (SS)        5       OUT     Main Sketch*    Chip Select
-SCK             18      OUT     Library (SPI)   Standard VSPI SCK
-MISO            19      IN      Library (SPI)   Standard VSPI MISO
-MOSI            23      OUT     Library (SPI)   Standard VSPI MOSI
+SCK             18      OUT     Standard VSPI SCK
+MISO            19      IN      Standard VSPI MISO
+MOSI            23      OUT     Standard VSPI MOSI
 RST             17      OUT     Main Sketch*    Reset Pin
 
 * Note: Pins marked "Main Sketch" are configurable arguments passed to 
@@ -61,5 +61,5 @@ RST             17      OUT     Main Sketch*    Reset Pin
   - RFID Module SDA pin is high-impedance input, so this is OK (Verified).
 
 ================================================================================
-Generated from Source Code Analysis
+NOEL VELLEMANS
 ================================================================================

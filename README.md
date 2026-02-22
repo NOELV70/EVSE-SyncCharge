@@ -14,7 +14,8 @@
 >
 > Detailed schematics, hardware documentation, and additional technical information will be released gradually as available free time permits.<br>
 
-**EVSE-SyncCharge - What?<br> **
+
+**EVSE-SyncCharge - What?** <br> 
 EVSE-SyncCharge isn’t just another EV charger — it’s the intelligent bridge between your home’s energy ecosystem and your vehicle.
 With millisecond-precise control, seamless MQTT and Home Assistant integration, and secure over-the-air updates that keep your system evolving, EVSE-SyncCharge puts real power back in your hands.
 

@@ -162,6 +162,28 @@ Every state can be customized with specific **Colors** (Red, Green, Blue, Cyan, 
 
 ---
 
+## ⚠️ HARDWARE DIAGNOSTICS (DANGER ZONE)
+
+**WARNING: DO NOT CONNECT A VEHICLE WHILE USING THIS PAGE.**
+
+The "Hardware Diagnostics" page provides direct, low-level control over the EVSE hardware. It bypasses the standard J1772 state machine and safety interlocks to allow for bench testing of the relay, pilot signal generation, and sensor calibration.
+
+**Access Control:**
+Due to the potential risks, this page is protected by a secondary authentication layer.
+- **Default User:** `hardware`
+- **Default Password:** `hardware`
+*(These can be changed in the Admin Security settings)*
+
+**Capabilities:**
+- **Force PWM:** Manually set the Control Pilot duty cycle (10% - 96%) to verify signal generation and ADC feedback.
+- **Force Relay:** Manually close/open the main contactor (L1) and phase expansion relays (L1+L2+L3).
+- **Raw Sensor Data:** View raw ADC values (mV) for the Pilot and Proximity sensors to diagnose wiring issues.
+
+**Safety Notice:**
+This mode is intended for **bench testing only**. Forcing relays closed or manipulating the pilot signal while a vehicle is connected can result in equipment damage or unsafe conditions.
+
+---
+
 ## �️ TECHNICAL DEEP DIVE
 
 ### The SAE J1772 State Machine

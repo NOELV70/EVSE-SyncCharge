@@ -70,6 +70,10 @@ Universal Connectivity
 
   
 *   **Dynamic LED Feedback:** Supports WS2812B addressable LEDs for intuitive status indication (Charging, Error, RFID Auth, Solar Wait) with customizable colors and effects.
+<img width="383" height="898" alt="image" src="https://github.com/user-attachments/assets/f7f33cb6-147e-42d2-9696-ef317b9fb602" />
+<img width="394" height="636" alt="image" src="https://github.com/user-attachments/assets/d638d74d-9e7b-4ebb-ab89-0c76c4c89c36" />
+<img width="390" height="673" alt="image" src="https://github.com/user-attachments/assets/c2fdf9f1-dcc9-4f47-88de-dff8de6d4e72" />
+
 
 ### Enterprise Connectivity & Reliability 
 We have significantly hardened the MQTT and Network stack to ensure the charger remains online and responsive in real-world conditions.

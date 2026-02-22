@@ -173,6 +173,7 @@ Due to the potential risks, this page is protected by a secondary authentication
 - **Default User:** `hardware`
 - **Default Password:** `hardware`
 *(These can be changed in the Admin Security settings)*
+> **Security Note:** The authentication realm for this page is dynamic. This prevents browsers from caching credentials, ensuring a fresh login prompt is requested upon every visit.
 
 **Capabilities:**
 - **Force PWM:** Manually set the Control Pilot duty cycle (10% - 96%) to verify signal generation and ADC feedback.

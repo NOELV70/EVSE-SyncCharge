@@ -32,6 +32,8 @@ void loadConfig(AppConfig &config) {
     config.mqttPass = prefs.getString("m_pass", "");
     config.wwwUser  = prefs.getString("w_user", "admin");
     config.wwwPass  = prefs.getString("w_pwd",  "admin");
+    config.hwDiagUser = prefs.getString("h_user", "hardware");
+    config.hwDiagPass = prefs.getString("h_pass", "hardware");
     config.allowBelow6AmpCharging = prefs.getBool("e_allow_low", false);
     config.softStart = prefs.getBool("e_soft_start", false);
     config.pauseImmediate = prefs.getBool("e_pause_im", true);
@@ -73,6 +75,7 @@ void saveConfig(const AppConfig &config) {
     prefs.putBool("m_tls", config.mqttUseTls);
     prefs.putString("m_user", config.mqttUser); prefs.putString("m_pass", config.mqttPass);
     prefs.putString("w_user", config.wwwUser); prefs.putString("w_pwd",  config.wwwPass);
+    prefs.putString("h_user", config.hwDiagUser); prefs.putString("h_pass", config.hwDiagPass);
     prefs.putBool("e_allow_low", config.allowBelow6AmpCharging); prefs.putBool("e_pause_im", config.pauseImmediate);
     prefs.putBool("e_soft_start", config.softStart);
     prefs.putULong("e_res_delay", config.lowLimitResumeDelayMs); prefs.putFloat("e_max_cur", config.maxCurrent);

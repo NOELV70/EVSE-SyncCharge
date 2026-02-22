@@ -692,6 +692,16 @@ void EvseCharge::managePwmAndRelay() {
     }
 }
 
+/**
+ *  Passthrough to forcefully switch a relay for diagnostics.
+ * 
+ */
+void EvseCharge::forceRelay(int relayNum, bool state) {
+    if (relay) {
+        relay->forceSwitch(relayNum, state);
+    }
+}
+
 void EvseCharge::setRcmEnabled(bool enable) {
     rcmEnabled = enable;
     logger.infof("[EVSE] RCM Safety Check %s", enable ? "ENABLED" : "DISABLED");

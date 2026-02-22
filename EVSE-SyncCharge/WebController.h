@@ -21,10 +21,11 @@
 #include "EvseConfig.h"
 #include "OCPPHandler.h"
 #include "EvseRfid.h"
+#include "Proximity.h"
 
 class WebController {
 public:
-    WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config, EvseRfid& rfid);
+    WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config, EvseRfid& rfid, Proximity& proximity);
     
     void begin(const String& deviceId, bool apMode);
     void loop();
@@ -38,15 +39,18 @@ private:
     OCPPHandler& ocpp;
     AppConfig& config;
     EvseRfid& rfid;
+    Proximity& proximity;
     
     String deviceId;
     bool apMode;
     bool _rebootPending;
     unsigned long _rebootTimestamp;
     int _theme;
+    String _diagSessionToken;
 
     // Helpers
     bool checkAuth();
+    bool checkHardwareAuth();
     String getUptime();
     String getRebootReason();
     String getVehicleStateText();
@@ -67,8 +71,10 @@ private:
     void handleConfigAuth();
     void handleSaveConfig();
     void handleCmd();
-    void handleTestMode();
-    void handleTestCmd();
+    void handleHardwareDiagnostics();
+    void handleHardwareDiagCmd();
+    void handleHardwareStatus();
+    void handleHardwareLogin();
     void handleWifiScan();
     void handleFactoryReset();
     void handleWifiReset();

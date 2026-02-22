@@ -23,8 +23,8 @@
 
 extern EvseTelnet telnetServer;
 
-WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config, EvseRfid& rfid)
-    : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), rfid(rfid), apMode(false), _rebootPending(false), _rebootTimestamp(0), _theme(0) {}
+WebController::WebController(EvseCharge& evse, Pilot& pilot, EvseMqttController& mqtt, OCPPHandler& ocpp, AppConfig& config, EvseRfid& rfid, Proximity& proximity)
+    : webServer(80), evse(evse), pilot(pilot), mqtt(mqtt), ocpp(ocpp), config(config), rfid(rfid), proximity(proximity), apMode(false), _rebootPending(false), _rebootTimestamp(0), _theme(0) {}
 
 extern volatile bool g_otaUpdating;
 
@@ -46,6 +46,12 @@ String WebController::getLogoSvg() { return String(logoSvg); }
 void WebController::begin(const String& deviceId, bool apMode) {
     this->deviceId = deviceId;
     this->apMode = apMode;
+
+    // Enable Cookie header collection for session management
+    const char *headerkeys[] = {"Cookie"};
+    size_t headerkeyssize = sizeof(headerkeys)/sizeof(char*);
+    webServer.collectHeaders(headerkeys, headerkeyssize);
+    _diagSessionToken = String((unsigned long)esp_random());
 
     if (apMode) {
         WiFi.mode(WIFI_AP);
@@ -75,8 +81,10 @@ void WebController::begin(const String& deviceId, bool apMode) {
     webServer.on("/config/auth", HTTP_GET, [this](){ handleConfigAuth(); });
     webServer.on("/saveConfig", HTTP_POST, [this](){ handleSaveConfig(); });
     webServer.on("/cmd", HTTP_GET, [this](){ handleCmd(); });
-    webServer.on("/test", HTTP_GET, [this](){ handleTestMode(); });
-    webServer.on("/testCmd", HTTP_GET, [this](){ handleTestCmd(); });
+    webServer.on("/diag/hardware", HTTP_GET, [this](){ handleHardwareDiagnostics(); });
+    webServer.on("/diag/cmd", HTTP_GET, [this](){ handleHardwareDiagCmd(); });
+    webServer.on("/diag/status", HTTP_GET, [this](){ handleHardwareStatus(); });
+    webServer.on("/diag/login", HTTP_ANY, [this](){ handleHardwareLogin(); });
     webServer.on("/scan", HTTP_GET, [this](){ handleWifiScan(); });
     webServer.on("/factory_reset", HTTP_GET, [this](){ handleFactoryReset(); });
     webServer.on("/factReset", HTTP_POST, [this](){ handleFactoryReset(); });
@@ -233,8 +241,27 @@ bool WebController::checkAuth() {
     return true;
 }
 
+bool WebController::checkHardwareAuth() {
+    if (webServer.hasHeader("Cookie")) {
+        String cookie = webServer.header("Cookie");
+        if (cookie.indexOf("DIAG_TOKEN=" + _diagSessionToken) != -1) {
+            return true;
+        }
+    }
+    // Auth failed - Redirect to login page or send 403 for AJAX
+    String uri = webServer.uri();
+    if (uri.indexOf("/cmd") != -1 || uri.indexOf("/status") != -1) {
+        webServer.send(403, "text/plain", "Forbidden");
+    } else {
+        webServer.sendHeader("Location", "/diag/login", true);
+        webServer.send(302, "text/plain", "");
+        return false;
+    }
+    return true;
+}
+
 /**
- * @brief Formats system uptime as human-readable string
+ *  Formats system uptime as human-readable string
  * @return String in format "Xd XXh XXm XXs"
  */
 String WebController::getUptime() {
@@ -245,7 +272,7 @@ String WebController::getUptime() {
 }
 
 /**
- * @brief Returns human-readable description of last ESP32 reset cause
+ *  Returns human-readable description of last ESP32 reset cause
  */
 String WebController::getRebootReason() {
     esp_reset_reason_t reason = esp_reset_reason();
@@ -260,7 +287,7 @@ String WebController::getRebootReason() {
 }
 
 /**
- * @brief Converts current vehicle state enum to display text
+ *  Converts current vehicle state enum to display text
  */
 String WebController::getVehicleStateText() {
     char buffer[50];
@@ -273,8 +300,8 @@ String WebController::getVehicleStateText() {
 // =============================================================================
 
 /**
- * @brief Returns JSON status data for AJAX dashboard updates
- * @note Called periodically by the dashboard JavaScript for live updates
+ *  Returns JSON status data for AJAX dashboard updates
+ *  Called periodically by the dashboard JavaScript for live updates
  */
 void WebController::handleStatus() {
     webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -306,7 +333,23 @@ void WebController::handleStatus() {
 }
 
 /**
- * @brief Serves the main dashboard page (AP mode: setup wizard, STA mode: control panel)
+ *  Returns JSON status data for the hardware diagnostics page
+ */
+void WebController::handleHardwareStatus() {
+    if (!checkHardwareAuth()) return;
+    webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    String json = "{";
+    json += "\"pvolt\":" + String(pilot.getVoltage(), 2) + ",";
+    json += "\"p_raw_h\":" + String(pilot.getRawHighMv()) + ",";
+    json += "\"p_raw_l\":" + String(pilot.getRawLowMv()) + ",";
+    json += "\"pp_raw\":" + String(proximity.getLastVoltageMv()) + ",";
+    json += "\"pp_amp\":" + String(evse.getHardwareCurrentLimit());
+    json += "}";
+    webServer.send(200, "application/json", json);
+}
+
+/**
+ *  Serves the main dashboard page (AP mode: setup wizard, STA mode: control panel)
  */
 void WebController::handleRoot() {
     if (apMode) {
@@ -403,7 +446,7 @@ void WebController::handleRoot() {
 }
 
 /**
- * @brief Renders the settings menu with links to all configuration pages
+ *  Renders the settings menu with links to all configuration pages
  */
 void WebController::handleSettingsMenu() {
     if (!checkAuth()) return;
@@ -432,7 +475,7 @@ void WebController::handleSettingsMenu() {
 }
 
 /**
- * @brief Configuration page for EVSE charging parameters (max current, soft start, etc.)
+ *  Configuration page for EVSE charging parameters (max current, soft start, etc.)
  */
 void WebController::handleConfigEvse() {
     if (!checkAuth()) return;
@@ -452,13 +495,12 @@ void WebController::handleConfigEvse() {
     h += "<label>Resume delay (ms)<input name='lldelay' type='number' value='"+String(config.lowLimitResumeDelayMs)+"'></label>";
     h += "<label>Solar / External Throttle Timeout (sec)<br><small>Throttle to 6A if no update (MQTT/OCPP) (0=Disable)</small><input name='solto' type='number' value='"+String(config.solarStopTimeout)+"'></label>";
     h += "<button class='btn' type='submit'>SAVE</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form>";
-    h += "<a href='/test' class='btn' style='background:#673ab7; color:#fff; margin-top:15px;'>PWM TEST LAB</a>";
     h += "<a class='btn' style='background:#444; color:#fff;' href='/settings'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
 /**
- * @brief Configuration page for Residual Current Monitor (RCM/RCD) safety settings
+ *  Configuration page for Residual Current Monitor (RCM/RCD) safety settings
  * @warning Disabling RCM is a safety risk - page includes warnings
  */
 void WebController::handleConfigRcm() {
@@ -472,7 +514,7 @@ void WebController::handleConfigRcm() {
 }
 
 /**
- * @brief Configuration page for MQTT broker connection and failsafe settings
+ *  Configuration page for MQTT broker connection and failsafe settings
  */
 void WebController::handleConfigMqtt() {
     if (!checkAuth()) return;
@@ -494,7 +536,7 @@ void WebController::handleConfigMqtt() {
 }
 
 /**
- * @brief Configuration page for OCPP 1.6 backend connection settings
+ *  Configuration page for OCPP 1.6 backend connection settings
  */
 void WebController::handleConfigOcpp() {
     if (!checkAuth()) return;
@@ -517,7 +559,7 @@ void WebController::handleConfigOcpp() {
 }
 
 /**
- * @brief Configuration page for Telnet remote logging console
+ *  Configuration page for Telnet remote logging console
  */
 void WebController::handleConfigTelnet() {
     if (!checkAuth()) return;
@@ -533,7 +575,7 @@ void WebController::handleConfigTelnet() {
 }
 
 /**
- * @brief Configuration page for WS2812 LED strip colors and effects per state
+ *  Configuration page for WS2812 LED strip colors and effects per state
  */
 void WebController::handleConfigLed() {
     if (!checkAuth()) return;
@@ -585,7 +627,7 @@ void WebController::handleConfigLed() {
 }
 
 /**
- * @brief Configuration page for WiFi SSID/password and static IP settings
+ *  Configuration page for WiFi SSID/password and static IP settings
  */
 void WebController::handleConfigWifi() {
     if (!checkAuth()) return;
@@ -615,20 +657,24 @@ void WebController::handleConfigWifi() {
 }
 
 /**
- * @brief Security configuration page with admin credentials and danger zone (reset options)
+ *  Security configuration page with admin credentials and danger zone (reset options)
  */
 void WebController::handleConfigAuth() {
     if (!checkAuth()) return;
     String h = String("<!DOCTYPE html><html><head><title>Security Config</title>") + getDashStyle() + "</head><body><div class='container'><h1>Security</h1><form method='POST' action='/saveConfig' onsubmit=\"document.getElementById('saveMsg').style.display='block'; document.getElementById('saveMsg').innerText='Saving...';\">";
-    h += "<label>User<input name='wuser' value='"+config.wwwUser+"'></label><label>Pass<input name='wpass' type='password' value='"+config.wwwPass+"'></label>";
     h += "<label>UI Theme<select name='theme'><option value='0' "+String(_theme==0?"selected":"")+">Yellow / Dark</option><option value='1' "+String(_theme==1?"selected":"")+">Blue / Light</option><option value='2' "+String(_theme==2?"selected":"")+">Blue / Dark</option><option value='3' "+String(_theme==3?"selected":"")+">Green / Light</option><option value='4' "+String(_theme==4?"selected":"")+">Green / Dark</option><option value='5' "+String(_theme==5?"selected":"")+">Red-Orange / Light</option><option value='6' "+String(_theme==6?"selected":"")+">Red-Orange / Dark</option></select></label>";
+    h += "<label>User<input name='wuser' value='"+config.wwwUser+"'></label><label>Pass<input name='wpass' type='password' value='"+config.wwwPass+"'></label>";
+    h += "<div style='margin-top:20px; border-top:1px solid #444; padding-top:10px;'><b>Hardware Diagnostics Access</b></div>";
+    h += "<label>Diag User<input name='huser' value='"+config.hwDiagUser+"'></label>";
+    h += "<label>Diag Pass<input name='hpass' type='password' value='"+config.hwDiagPass+"'></label>";
     h += "<button class='btn' type='submit'>SAVE CREDENTIALS</button><div id='saveMsg' style='margin-top:10px; display:none; color:#00ffcc; font-weight:bold;'></div></form><br>";
     h += "<button class='btn btn-red' onclick=\"cfm('Reboot System?', function(){window.location='/reboot'})\">REBOOT DEVICE</button>";
     h += "<button class='btn btn-red' style='margin-top:20px' onclick=\"document.getElementById('dz').style.display='block';this.style.display='none'\">! DANGER ZONE !</button>";
     h += "<div id='dz' style='display:none; border:1px solid #cc3300; padding:10px; border-radius:6px; margin-top:10px; background:#2a0a0a'>";
     h += "<form id='f1' method='POST' action='/factReset'><button type='button' class='btn btn-red' onclick=\"cfm('ERASE ALL DATA?', function(){document.getElementById('f1').submit()})\">FACTORY RESET</button></form>";
     h += "<div style='display:flex; gap:10px; margin-top:5px;'><form id='f2' method='POST' action='/wifiReset' style='width:50%'><button type='button' class='btn' style='background:#ff9800; color:#fff' onclick=\"cfm('Reset WiFi Settings?', function(){document.getElementById('f2').submit()})\">RESET WIFI</button></form>";
-    h += "<form id='f3' method='POST' action='/evseReset' style='width:50%'><button type='button' class='btn' style='background:#ff9800; color:#fff' onclick=\"cfm('Reset EVSE Params?', function(){document.getElementById('f3').submit()})\">RESET PARAMS</button></form></div></div>";
+    h += "<form id='f3' method='POST' action='/evseReset' style='width:50%'><button type='button' class='btn' style='background:#ff9800; color:#fff' onclick=\"cfm('Reset EVSE Params?', function(){document.getElementById('f3').submit()})\">RESET PARAMS</button></form></div>";
+    h += "<a href='/diag/login' class='btn btn-red' style='background:#b71c1c; margin-top:10px;'>HARDWARE DIAGNOSTICS</a></div>";
     h += "<a class='btn' style='background:#444; color:#fff; margin-top:20px;' href='/settings'>CANCEL</a>";
     h += "<div id='cm' class='modal'><div class='modal-content'><h2>CONFIRM ACTION</h2><p id='cmsg' style='font-size:1.1em; margin:20px 0; color:#ccc'></p><div style='display:flex; gap:10px'><button id='cyes' class='btn'>YES</button><button onclick=\"document.getElementById('cm').style.display='none'\" class='btn' style='background:#444; color:#fff'>NO</button></div></div></div>";
     h += "<script>var pa=null;function cfm(m,a){document.getElementById('cmsg').innerText=m;document.getElementById('cm').style.display='block';pa=a;}document.getElementById('cyes').onclick=function(){document.getElementById('cm').style.display='none';if(pa)pa();};</script>";
@@ -637,8 +683,7 @@ void WebController::handleConfigAuth() {
 }
 
 /**
- * @brief Unified POST handler for saving configuration from all config pages
- * @note Determines which settings to save based on presence of form arguments
+ *  Unified POST handler for saving configuration from all config pages
  */
 void WebController::handleSaveConfig() {
     if (!checkAuth() && !apMode) return;
@@ -730,7 +775,12 @@ void WebController::handleSaveConfig() {
         uint16_t port = webServer.arg("tport").toInt();
         telnetServer.updateConfig(en, port);
     }
-    if (webServer.hasArg("wuser")) { config.wwwUser = webServer.arg("wuser"); config.wwwPass = webServer.arg("wpass"); }
+    if (webServer.hasArg("wuser")) { 
+        config.wwwUser = webServer.arg("wuser"); 
+        config.wwwPass = webServer.arg("wpass"); 
+        config.hwDiagUser = webServer.arg("huser");
+        config.hwDiagPass = webServer.arg("hpass");
+    }
     if (webServer.hasArg("ssid")) { 
         rebootRequired = true;
         config.wifiSsid = webServer.arg("ssid"); config.wifiPass = webServer.arg("pass"); 
@@ -756,7 +806,7 @@ void WebController::handleSaveConfig() {
 }
 
 /**
- * @brief Handles control commands (start/pause/stop charging, LED test)
+ *  Handles control commands (start/pause/stop charging, LED test)
  * @param do Query parameter: "start", "pause", "stop", or "ledtest"
  * @param ajax If present, returns plain text "OK" instead of redirect
  */
@@ -775,43 +825,107 @@ void WebController::handleCmd() {
 }
 
 /**
- * @brief PWM Test Lab page - allows manual PWM duty cycle control for debugging
- * @warning Bypasses normal safety interlocks - for development/testing only
+ *  Handles login for Hardware Diagnostics.
+ *  GET: Shows login form and clears existing session cookie.
+ *  POST: Validates credentials and sets session cookie.
  */
-void WebController::handleTestMode() {
-    if (!checkAuth()) return;
-    int maxDuty = (int)pilot.ampsToDuty(MAX_CURRENT);
-    int initVal = 50;
-    String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>PWM Test Lab</title>" + getDashStyle() + "</head><body><div class='container'>";
-    h += "<h1>PWM TEST LAB</h1><span class='version-tag'>WARNING: FORCE PWM</span>";
-    h += "<div class='stat' style='border-left-color:#673ab7'>PILOT VOLTAGE: <span id='pv'>--</span> V<br>CALC AMPS: <span id='ca'>--</span> A</div>";
-    h += "<div style='margin:20px 0; padding:15px; background:#222; border-radius:8px;'>";
-    h += "<label>PWM DUTY: <span id='dval'>" + String(initVal) + "</span>%</label>";
-    h += "<input type='range' min='10' max='" + String(maxDuty) + "' value='" + String(initVal) + "' style='width:100%' oninput='setPwm(this.value)' onchange='setPwm(this.value)'>";
-    h += "</div>";
-    h += "<div style='display:flex; gap:10px;'><button class='btn' onclick=\"fetch('/testCmd?act=on')\">ENABLE TEST</button><button class='btn btn-red' onclick=\"fetch('/testCmd?act=off')\">DISABLE TEST</button></div>";
-    h += "<a href='/config/evse' class='btn' style='background:#444; margin-top:20px'>BACK</a>";
-    h += "<script>function setPwm(v) { document.getElementById('dval').innerText=v; fetch('/testCmd?act=pwm&val='+v).then(r=>r.text()).then(t=>{document.getElementById('ca').innerText=parseFloat(t).toFixed(1);}); } setInterval(function(){ fetch('/status').then(r=>r.json()).then(d=>{ document.getElementById('pv').innerText=d.pvolt.toFixed(2); }); }, 1000);</script></div></body></html>";
+void WebController::handleHardwareLogin() {
+    if (webServer.method() == HTTP_POST) {
+        if (webServer.arg("user") == config.hwDiagUser && webServer.arg("pass") == config.hwDiagPass) {
+            webServer.sendHeader("Set-Cookie", "DIAG_TOKEN=" + _diagSessionToken + "; Path=/diag; SameSite=Strict");
+            webServer.sendHeader("Location", "/diag/hardware", true);
+            webServer.send(302, "text/plain", "");
+            return;
+        } else {
+            webServer.send(200, "text/html", "<html><body style='background:#121212;color:#fff;font-family:sans-serif;text-align:center;padding:50px'><h1>Login Failed</h1><a href='/diag/login' style='color:#ffcc00'>Try Again</a></body></html>");
+            return;
+        }
+    }
+    // GET request - Show form and Clear Cookie to force re-auth
+    webServer.sendHeader("Set-Cookie", "DIAG_TOKEN=; Max-Age=0; Path=/diag");
+    webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    String h = "<!DOCTYPE html><html><head><title>Hardware Login</title>" + getDashStyle() + "</head><body><div class='container'>";
+    h += "<h1>Hardware Diagnostics</h1><p>Restricted Access</p>";
+    h += "<form method='POST' action='/diag/login'><label>User<input name='user'></label><label>Pass<input name='pass' type='password'></label><button type='submit' class='btn'>LOGIN</button></form>";
+    h += "<a href='/settings' class='btn' style='background:#444; margin-top:20px'>CANCEL</a></div></body></html>";
     webServer.send(200, "text/html", h);
 }
 
 /**
- * @brief Handles PWM test lab commands (enable/disable test mode, set duty cycle)
+ *  Renders the Hardware Diagnostics page with direct hardware controls.
  */
-void WebController::handleTestCmd() {
-    if (!checkAuth()) return;
+void WebController::handleHardwareDiagnostics() {
+    if (!checkHardwareAuth()) return;
+    webServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    webServer.sendHeader("Pragma", "no-cache");
+    webServer.sendHeader("Expires", "0");
+    String h = "<!DOCTYPE html><html><head><title>Hardware Diag</title>" + getDashStyle() + "</head><body><div class='container'>";
+    h += "<h1>Hardware Diagnostics</h1>";
+    h += "<div class='stat' style='border-left-color:#ff5252'><b>DANGER ZONE</b><br>These controls bypass all safety interlocks. Use with extreme caution.</div>";
+    h += "<div class='diag-header'>PILOT SIGNAL (CP)</div>";
+    h += "<div class='stat-diag'>";
+    h += "<b>PILOT VOLTAGE:</b> <span id='pvolt'>--</span> V<br>";
+    h += "<b>RAW HIGH:</b> <span id='p_raw_h'>--</span> mV<br>";
+    h += "<b>RAW LOW:</b> <span id='p_raw_l'>--</span> mV";
+    h += "</div>";
+    h += "<div style='margin:20px 0; padding:15px; background:#222; border-radius:8px;'>";
+    h += "<label>PWM DUTY: <span id='dval'>50</span>% (Calculated Amps: <span id='ca'>--</span> A)</label>";
+    h += "<input type='range' id='pwmSlider' min='10' max='96' value='50' style='width:100%' oninput='setPwm(this.value)' onchange='setPwm(this.value)'>";
+    h += "</div>";
+    h += "<div style='display:flex; gap:10px;'><button class='btn' onclick=\"let v=document.getElementById('pwmSlider').value; fetch('/diag/cmd?act=pwm_on&val='+v)\">ENABLE PWM TEST</button><button class='btn btn-red' onclick=\"fetch('/diag/cmd?act=pwm_off')\">DISABLE PWM TEST</button></div>";
+    h += "<div class='diag-header'>PROXIMITY PILOT (PP)</div>";
+    h += "<div class='stat-diag'>";
+    h += "<b>SYSTEM LIMIT:</b> " + String(config.maxCurrent, 1) + " A<br>";
+    h += "<b>PP SENSING:</b> " + String(config.sensePpEnabled ? "ENABLED" : "DISABLED") + "<br>";
+    h += "<b>RAW VOLTAGE:</b> <span id='pp_raw'>--</span> mV<br>";
+    h += "<b>CABLE CURRENT:</b> <span id='pp_amp'>--</span> A";
+    h += "</div>";
+    h += "<div class='diag-header'>RELAY CONTROL</div>";
+    h += "<div style='display:flex; gap:10px; margin-top:10px;'><button class='btn' onclick=\"fetch('/diag/cmd?act=r1_on')\">CLOSE RELAY 1</button><button class='btn btn-red' onclick=\"fetch('/diag/cmd?act=r1_off')\">OPEN RELAY 1</button></div>";
+    h += "<div style='display:flex; gap:10px; margin-top:10px;'><button class='btn' onclick=\"fetch('/diag/cmd?act=r2_on')\">CLOSE RELAY 2/3</button><button class='btn btn-red' onclick=\"fetch('/diag/cmd?act=r2_off')\">OPEN RELAY 2/3</button></div>";
+    h += "<a href='/settings' class='btn' style='background:#444; margin-top:20px'>BACK TO SETTINGS</a></div>";
+    h += "<script>function setPwm(v){document.getElementById('dval').innerText=v;fetch('/diag/cmd?act=set_pwm&val='+v).then(r=>r.text()).then(t=>{document.getElementById('ca').innerText=t;});} setInterval(function(){fetch('/diag/status').then(r=>r.json()).then(d=>{document.getElementById('pvolt').innerText=d.pvolt.toFixed(2);document.getElementById('p_raw_h').innerText=d.p_raw_h;document.getElementById('p_raw_l').innerText=d.p_raw_l;document.getElementById('pp_raw').innerText=d.pp_raw;document.getElementById('pp_amp').innerText=d.pp_amp;});},1000);</script>";
+    h += "</body></html>";
+    webServer.send(200, "text/html", h);
+}
+
+/**
+ *  Handles commands from the Hardware Diagnostics page.
+ */
+void WebController::handleHardwareDiagCmd() {
+    if (!checkHardwareAuth()) return;
     String act = webServer.arg("act");
-    if (act == "on") { evse.enableCurrentTest(true); webServer.send(200, "text/plain", "Enabled"); }
-    else if (act == "off") { evse.enableCurrentTest(false); webServer.send(200, "text/plain", "Disabled"); }
-    else if (act == "pwm") {
+    logger.warnf("[DIAG] Command received: %s", act.c_str());
+
+    if (act == "pwm_on") { 
+        evse.enableCurrentTest(true);
+        if (webServer.hasArg("val")) {
+            float duty = webServer.arg("val").toFloat();
+            float amps = pilot.dutyToAmps(duty);
+            evse.setCurrentTest(amps);
+        }
+    }
+    else if (act == "pwm_off") { evse.enableCurrentTest(false); }
+    else if (act == "set_pwm") {
         float duty = webServer.arg("val").toFloat();
         float amps = pilot.dutyToAmps(duty);
         evse.setCurrentTest(amps);
-        webServer.send(200, "text/plain", String(amps));
-    } else webServer.send(400, "text/plain", "Bad Request");
+        webServer.send(200, "text/plain", String(amps, 1));
+        return; // Don't send generic OK
+    }
+    else if (act == "r1_on")  { evse.forceRelay(1, HIGH); }
+    else if (act == "r1_off") { evse.forceRelay(1, LOW); }
+    else if (act == "r2_on")  { evse.forceRelay(2, HIGH); }
+    else if (act == "r2_off") { evse.forceRelay(2, LOW); }
+    else {
+        webServer.send(400, "text/plain", "Bad Request");
+        return;
+    }
+    webServer.send(200, "text/plain", "OK");
 }
+
 /**
- * @brief Scans for available WiFi networks and returns JSON array
+ *  Scans for available WiFi networks and returns JSON array
  * @return JSON array: [{"ssid":"NetworkName","rssi":-65}, ...]
  */void WebController::handleWifiScan() {
     if (!apMode && !checkAuth()) return;
@@ -826,7 +940,7 @@ void WebController::handleTestCmd() {
 }
 
 /**
- * @brief Factory reset - erases all configuration and reboots into AP mode
+ *  Factory reset - erases all configuration and reboots into AP mode
  * @warning Destructive operation - all settings including WiFi credentials are lost
  */
 void WebController::handleFactoryReset() {
@@ -842,7 +956,7 @@ void WebController::handleFactoryReset() {
 }
 
 /**
- * @brief Resets only WiFi credentials - device reboots into AP setup mode
+ *  Resets only WiFi credentials - device reboots into AP setup mode
  */
 void WebController::handleWifiReset() {
     if (!checkAuth()) return;
@@ -856,7 +970,7 @@ void WebController::handleWifiReset() {
 }
 
 /**
- * @brief Resets EVSE parameters to safe defaults (32A, RCM enabled, no soft start)
+ *  Resets EVSE parameters to safe defaults (32A, RCM enabled, no soft start)
  */
 void WebController::handleEvseReset() {
     if (!checkAuth()) return;
@@ -868,7 +982,7 @@ void WebController::handleEvseReset() {
 }
 
 /**
- * @brief OTA firmware update page - displays file upload form
+ *  OTA firmware update page - displays file upload form
  */
 void WebController::handleUpdate() {
     if(!checkAuth()) return;
@@ -879,7 +993,7 @@ void WebController::handleUpdate() {
 }
 
 /**
- * @brief OTA update completion handler - shows success/failure message
+ *  OTA update completion handler - shows success/failure message
  */
 void WebController::handleDoUpdate() {
     logger.info("[OTA] Upload complete, sending response");
@@ -892,8 +1006,8 @@ void WebController::handleDoUpdate() {
 }
 
 /**
- * @brief OTA upload stream handler - processes firmware binary chunks
- * @note Stops EVSE task and disables pilot during update for safety
+ * OTA upload stream handler - processes firmware binary chunks
+ * Stops EVSE task and disables pilot during update for safety
  */
 void WebController::handleUpdateUpload() {
     esp_task_wdt_reset(); // Keep watchdog happy during long uploads

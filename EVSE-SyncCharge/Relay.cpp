@@ -131,3 +131,16 @@ void Relay::setThreePhase(bool enable)
         logger.warn("[RELAY] Safety Lockout Active (Capacitor Discharge)");
     }
 }
+
+/**
+ *  Forcefully switches a relay, bypassing all safety logic. FOR DIAGNOSTIC USE ONLY.
+ */
+void Relay::forceSwitch(int relayNum, bool state) {
+    if (relayNum == 1) {
+        digitalWrite(PIN_RELAY_L1, state);
+        logger.warnf("[RELAY] FORCE SWITCH L1 to %s", state ? "CLOSED" : "OPEN");
+    } else if (relayNum == 2) {
+        digitalWrite(PIN_RELAY_L2L3, state);
+        logger.warnf("[RELAY] FORCE SWITCH L2/L3 to %s", state ? "CLOSED" : "OPEN");
+    }
+}

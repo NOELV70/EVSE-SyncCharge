@@ -22,7 +22,7 @@
 
 /**
  * @class WebSocketClientAdapter
- * @brief Wraps a WebSocketsClient to provide a standard Arduino Client interface.
+ *  Wraps a WebSocketsClient to provide a standard Arduino Client interface.
  *
  * This adapter allows a WebSocket connection to be treated as a standard network
  * stream, making it compatible with libraries like PubSubClient that expect a
@@ -37,21 +37,21 @@ private:
     
 public:
     /**
-     * @brief Constructor. Sets up the WebSocket event handler.
+     *  Constructor. Sets up the WebSocket event handler.
      */
     WebSocketClientAdapter();
 
     /**
-     * @brief Initializes the WebSocket connection.
-     * @param host The server hostname.
-     * @param port The server port.
-     * @param url The URL path for the WebSocket endpoint (e.g., "/mqtt").
-     * @param useTls True to use a secure WebSocket connection (WSS).
+     *  Initializes the WebSocket connection.
+     * input : host The server hostname.
+     * input : port The server port.
+     * input : url The URL path for the WebSocket endpoint (e.g., "/mqtt").
+     * input : useTls True to use a secure WebSocket connection (WSS).
      */
     void begin(const char* host, uint16_t port, const char* url = "/", bool useTls = false);
 
     /**
-     * @brief Must be called in the main loop to process WebSocket events.
+     *  Must be called in the main loop to process WebSocket events.
      */
     void loop();
 
@@ -79,8 +79,8 @@ public:
     virtual uint8_t connected() override;
 
     /**
-     * @brief Allows the object to be used in boolean contexts (e.g., `if (client)`).
-     * @return True if the WebSocket is connected, false otherwise.
+     *  Allows the object to be used in boolean contexts (e.g., `if (client)`).
+     * output : True if the WebSocket is connected, false otherwise.
      */
     virtual operator bool() override;
 };

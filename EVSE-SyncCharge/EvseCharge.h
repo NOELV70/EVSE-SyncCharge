@@ -71,6 +71,7 @@ public:
 
     void enableCurrentTest(bool enable);
     void setCurrentTest(float amps);
+    void forceRelay(int relayNum, bool state);
 
     // ThrottleAlive (Safety Timeout)
     void setThrottleAliveTimeout(unsigned long seconds);

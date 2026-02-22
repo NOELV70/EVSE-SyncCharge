@@ -16,11 +16,11 @@
 #include <stddef.h>
 
 /**
- * @brief Allocates memory, preferring external PSRAM (SPIRAM) if available.
+ *  Allocates memory, preferring external PSRAM (SPIRAM) if available.
  *        If PSRAM allocation fails or is not available, it falls back to internal RAM.
  * 
- * @param size Size of memory to allocate in bytes.
- * @return void* Pointer to allocated memory, or NULL if both allocations fail.
+ * input : size Size of memory to allocate in bytes.
+ * output : void* Pointer to allocated memory, or NULL if both allocations fail.
  */
 void* os_esp_malloc_large(size_t size);
 void os_esp_free(void* ptr);

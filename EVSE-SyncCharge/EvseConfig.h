@@ -34,6 +34,8 @@ struct AppConfig {
     bool mqttUseTls = false;
     String wwwUser = "admin";
     String wwwPass = "admin";
+    String hwDiagUser = "hardware";
+    String hwDiagPass = "hardware";
     bool allowBelow6AmpCharging = false; // Default false = Strict J1772
     bool softStart = false;
     bool pauseImmediate = true;

@@ -52,6 +52,7 @@ Proximity::Proximity(EvseCharge& evse, AppConfig& config) :
     _evse(&evse),
     _config(&config),
     _initialized(false),
+    _lastVoltageMv(0),
     _lastCheck(0)
 {}
 
@@ -72,6 +73,7 @@ uint8_t Proximity::getMaxCurrent() {
 
     // Read directly using standard Arduino API
     int voltage_mv = analogReadMilliVolts(PIN_PROXIMITY_IN);
+    _lastVoltageMv = voltage_mv;
 
     logger.infof("[PROXIMITY] Measured: %dmV", voltage_mv);
 
@@ -100,6 +102,10 @@ uint8_t Proximity::getMaxCurrent() {
     logger.infof("[PROXIMITY] Max cable current: %dA", current);
 
     return current;
+}
+
+int Proximity::getLastVoltageMv() const {
+    return _lastVoltageMv;
 }
 
 void Proximity::loop() {

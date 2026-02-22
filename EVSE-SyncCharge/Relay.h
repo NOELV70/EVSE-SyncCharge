@@ -36,6 +36,7 @@ public:
 
     void open();
     void close();
+    void forceSwitch(int relayNum, bool state);
     
     // Phase Switching Control
     void setThreePhase(bool enable);

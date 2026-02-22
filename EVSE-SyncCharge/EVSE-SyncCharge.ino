@@ -97,7 +97,7 @@ Rcm rcm;
 EvseMqttController mqttController(evse, pilot);
 OCPPHandler ocppHandler(evse, pilot);
 EvseRfid rfid;
-WebController webController(evse, pilot, mqttController, ocppHandler, config, rfid);
+WebController webController(evse, pilot, mqttController, ocppHandler, config, rfid, proximitySensor);
 EvseTelnet telnetServer;
 String deviceId;
 TaskHandle_t evseTaskHandle = NULL;

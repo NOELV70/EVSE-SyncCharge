@@ -64,9 +64,9 @@
  * The code uses this formula to convert any new ADC reading:
  *   RealVoltage = StartVoltage + (ADC_Reading - Start_ADC_Reading) * Slope
  */
-constexpr int CAL_ADC_MV_LOW     = 300;      // ADC reading at -12V
+constexpr int CAL_ADC_MV_LOW     = 350;      // ADC reading at -12V
 constexpr int CAL_PILOT_MV_LOW   = -12000;   // -12V in mV
-constexpr int CAL_ADC_MV_HIGH    = 3200;     // ADC reading at +12V
+constexpr int CAL_ADC_MV_HIGH    = 3100;     // ADC reading at +12V
 constexpr int CAL_PILOT_MV_HIGH  = 12000;    // +12V in mV
 
 // Slope = (12000 - (-12000)) / (3100 - 350) = 24000 / 2752 = 8.72093
@@ -126,6 +126,8 @@ private:
     int highVoltageMv = 0; 
     int lowVoltageMv = 0;
     float currentDutyPercent = 0.0f;
+    int rawHighMv = 0;
+    int rawLowMv = 0;
     bool pwmAttached = false;
     VEHICLE_STATE_T lastVehicleState = VEHICLE_NOT_CONNECTED; 
 
@@ -142,6 +144,8 @@ public:
     float getPwmDuty();
     float ampsToDuty(float amps);
     float dutyToAmps(float duty);
+    int getRawHighMv() { return rawHighMv; }
+    int getRawLowMv() { return rawLowMv; }
 
 private:
     int analogReadMax();

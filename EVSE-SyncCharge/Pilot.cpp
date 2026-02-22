@@ -86,20 +86,20 @@ void Pilot::currentLimit(float amps)
 
 
 VEHICLE_STATE_T Pilot::read() {
-    int highRaw = 0;
-    int lowRaw = 5000; // Start higher than max possible 3.3V (3300mV)
+    rawHighMv = 0;
+    rawLowMv = 5000; // Start higher than max possible 3.3V (3300mV)
 
     // Sample for 2 full PWM periods (approx 2ms) to catch the peaks
     unsigned long startTime = micros();
     while ((micros() - startTime) < PILOT_SAMPLE_DURATION_US) {
         int val = analogReadMilliVolts(PIN_PILOT_IN);
-        if (val > highRaw) highRaw = val;
-        if (val < lowRaw)  lowRaw = val;
+        if (val > rawHighMv) rawHighMv = val;
+        if (val < rawLowMv)  rawLowMv = val;
     }
     
     // 2. Conversion
-    highVoltageMv = (int)convertMv(highRaw);
-    lowVoltageMv  = (int)convertMv(lowRaw);
+    highVoltageMv = (int)convertMv(rawHighMv);
+    lowVoltageMv  = (int)convertMv(rawLowMv);
 
     // 3. Temporary state determination
     VEHICLE_STATE_T detectedState;

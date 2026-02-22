@@ -52,12 +52,14 @@ public:
     Proximity(EvseCharge& evse, AppConfig& config);
     ~Proximity() = default;
 
+    int getLastVoltageMv() const;
     bool begin();
     void loop();
 
 private:
     uint8_t getMaxCurrent();
 
+    int _lastVoltageMv;
     bool _initialized;
     EvseCharge* _evse;
     AppConfig* _config;

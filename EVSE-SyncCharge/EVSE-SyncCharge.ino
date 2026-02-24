@@ -146,6 +146,33 @@ void updateLedState() {
     else led.setState(LED_READY);
 }
 
+void manageFallbackWifi() {
+    if (!isFallbackApMode) return;
+
+    // 1. Check if the background connection attempt succeeded
+    if (WiFi.status() == WL_CONNECTED) {
+        logger.info("[NET] WiFi Recovered! Rebooting to switch to STA mode...");
+        // Reboot ensures all services (MQTT, Web, etc.) re-bind to the correct interface/IP
+        // and clears the AP mode cleanly.
+        delay(2000);
+        ESP.restart();
+    }
+
+    // 2. Periodic Retry (Every 5 minutes)
+    static unsigned long lastRetryTime = 0;
+    const unsigned long RETRY_INTERVAL = 300000UL;
+
+    if (millis() - lastRetryTime > RETRY_INTERVAL) {
+        lastRetryTime = millis();
+        logger.info("[NET] Fallback Mode: Attempting background WiFi reconnect...");
+        
+        // Enable AP+STA mode so we can try to connect to the router 
+        // without killing the fallback AP.
+        WiFi.mode(WIFI_AP_STA);
+        WiFi.begin(config.wifiSsid.c_str(), config.wifiPass.c_str());
+    }
+}
+
 // --- DUAL CORE TASK ---
 // Run EVSE logic on a dedicated high-priority task to prevent WiFi/Web lag
 // from affecting safety timings.
@@ -253,13 +280,18 @@ void setup() {
     cs.softStart = config.softStart;
     cs.lowLimitResumeDelayMs = config.lowLimitResumeDelayMs;
 
+    // Apply EVSE specific timeouts
+    evse.setThrottleAliveTimeout(config.solarStopTimeout);
+
     // Link MQTT Failsafe commands to AppConfig
     mqttController.setFailsafeConfig(config.mqttFailsafeEnabled, config.mqttFailsafeTimeout);
-    evse.setThrottleAliveTimeout(config.solarStopTimeout);
+
     mqttController.onFailsafeCommand([](bool enabled, unsigned long timeout){
+        // Controller guarantees 'timeout' is within valid bounds (60-3600s)
         config.mqttFailsafeEnabled = enabled;
         config.mqttFailsafeTimeout = timeout;
         saveConfig(config); // Persist to NVS
+        mqttController.setFailsafeConfig(config.mqttFailsafeEnabled, config.mqttFailsafeTimeout);
     });
     mqttController.onRcmConfigChanged([](bool enabled){
         config.rcmEnabled = enabled;
@@ -280,14 +312,26 @@ void setup() {
         }
         WiFi.begin(config.wifiSsid.c_str(), config.wifiPass.c_str());
         int retry = 0;
-        while (WiFi.status() != WL_CONNECTED && retry < 360) { 
+        const int MAX_WIFI_RETRY = 360; // ~3 minutes (360 * 500ms)
+        // Wait for connection but attempt a reconnect periodically.
+        // This avoids the previous busy-wait that never retried the connection.
+        while (WiFi.status() != WL_CONNECTED && retry < MAX_WIFI_RETRY) {
+            // Short wait loop to keep UI responsive and service watchdog
             unsigned long startWait = millis();
             while (millis() - startWait < 500) {
                 led.loop();
                 delay(5);
             }
-            retry++; 
-            esp_task_wdt_reset(); 
+
+            retry++;
+            // Try a lightweight reconnect every few iterations to avoid hammering
+            if ((retry % 10) == 0) { // every ~5 seconds
+                logger.infof("[NET] WiFi not connected, retry %d/%d - attempting reconnect...", retry, MAX_WIFI_RETRY);
+                WiFi.reconnect();
+            }
+
+            // Keep watchdog fed while attempting connection
+            esp_task_wdt_reset();
         }
 
         if (WiFi.status() != WL_CONNECTED) {
@@ -386,21 +430,8 @@ void loop() {
     esp_task_wdt_reset(); 
 
     bootCount.loop();
-    // WiFi Recovery Logic (AP Fallback -> STA)
-    if (isFallbackApMode) {
-        static unsigned long lastWifiRetry = 0;
-        if (WiFi.status() == WL_CONNECTED) {
-            logger.info("[NET] WiFi Recovered! Rebooting...");
-            delay(2000);
-            ESP.restart();
-        }
-        if (millis() - lastWifiRetry > 300000UL) {
-            lastWifiRetry = millis();
-            logger.info("[NET] Retrying WiFi connection...");
-            WiFi.mode(WIFI_AP_STA);
-            WiFi.begin(config.wifiSsid.c_str(), config.wifiPass.c_str());
-        }
-    }
+    
+    manageFallbackWifi();
 
     webController.loop();
     rfid.loop();

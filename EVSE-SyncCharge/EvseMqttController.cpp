@@ -368,11 +368,10 @@ void EvseMqttController::mqttCallback(char* topic, byte* payload, unsigned int l
     else if (strcmp(topic, topicSetFailsafeTimeout.c_str()) == 0)
     {
         long val = msg.toInt();
-        if (val < 10) val = 10; // Minimum 10 seconds safety
-        if (val > 3600) val = 3600; // Max 1 hour
+        unsigned long clamped = constrain(val, 60, 3600);
         
-        if (_fsTimeout != (unsigned long)val) {
-            _fsTimeout = (unsigned long)val;
+        if (_fsTimeout != clamped) {
+            _fsTimeout = clamped;
             char buf[16]; snprintf(buf, sizeof(buf), "%lu", _fsTimeout);
             mqttClient.publish(topicFailsafeTimeoutState.c_str(), buf, true);
             if (_fsCallback) _fsCallback(_fsEnabled, _fsTimeout);
@@ -404,7 +403,7 @@ bool EvseMqttController::connected()
 void EvseMqttController::setFailsafeConfig(bool enabled, unsigned long timeout)
 {
     _fsEnabled = enabled;
-    _fsTimeout = timeout;
+    _fsTimeout = constrain(timeout, 60UL, 3600UL); // Enforce safety bounds (60s - 1h)
     // If connected, update the state topics immediately
     if (mqttClient.connected()) {
         mqttClient.publish(topicFailsafeState.c_str(), _fsEnabled ? "1" : "0", true);

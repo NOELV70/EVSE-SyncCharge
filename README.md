@@ -108,6 +108,8 @@ Technical Specifications<br>
     
 
 
+<img width="713" height="746" alt="image" src="https://github.com/user-attachments/assets/7c8964f9-ce84-4262-ad17-a964827c204e" />
+
 
 _**EVSE-SyncCharge**_ : 
 * Real Charge Control. Not Just a Smart Relay.<br>
